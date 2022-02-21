@@ -13,11 +13,12 @@
 # limitations under the License.
 
 import os
+import shutil
 import tempfile
 import unittest
 
 from transformers import SPIECE_UNDERLINE, BatchEncoding, MBart50Tokenizer, MBart50TokenizerFast, is_torch_available
-from transformers.testing_utils import require_sentencepiece, require_tokenizers, require_torch
+from transformers.testing_utils import nested_simplify, require_sentencepiece, require_tokenizers, require_torch, slow
 
 from .test_tokenization_common import TokenizerTesterMixin
 
@@ -34,10 +35,11 @@ RO_CODE = 250020
 
 @require_sentencepiece
 @require_tokenizers
-class MBartTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
+class MBart50TokenizationTest(TokenizerTesterMixin, unittest.TestCase):
     tokenizer_class = MBart50Tokenizer
     rust_tokenizer_class = MBart50TokenizerFast
     test_rust_tokenizer = True
+    test_sentencepiece = True
 
     def setUp(self):
         super().setUp()
@@ -45,6 +47,25 @@ class MBartTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
         # We have a SentencePiece fixture for testing
         tokenizer = MBart50Tokenizer(SAMPLE_VOCAB, src_lang="en_XX", tgt_lang="ro_RO", keep_accents=True)
         tokenizer.save_pretrained(self.tmpdirname)
+
+    def test_convert_token_and_id(self):
+        """Test ``_convert_token_to_id`` and ``_convert_id_to_token``."""
+        token = "<s>"
+        token_id = 0
+
+        self.assertEqual(self.get_tokenizer()._convert_token_to_id(token), token_id)
+        self.assertEqual(self.get_tokenizer()._convert_id_to_token(token_id), token)
+
+    def test_get_vocab(self):
+        vocab_keys = list(self.get_tokenizer().get_vocab().keys())
+
+        self.assertEqual(vocab_keys[0], "<s>")
+        self.assertEqual(vocab_keys[1], "<pad>")
+        self.assertEqual(vocab_keys[-1], "<mask>")
+        self.assertEqual(len(vocab_keys), 1_054)
+
+    def test_vocab_size(self):
+        self.assertEqual(self.get_tokenizer().vocab_size, 1_054)
 
     def test_full_tokenizer(self):
         tokenizer = MBart50Tokenizer(SAMPLE_VOCAB, src_lang="en_XX", tgt_lang="ro_RO", keep_accents=True)
@@ -81,11 +102,95 @@ class MBartTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
             # fmt: on
         )
 
+    @slow
+    def test_tokenizer_integration(self):
+        # fmt: off
+        expected_encoding = {'input_ids': [[250004, 11062, 82772, 7, 15, 82772, 538, 51529, 237, 17198, 1290, 206, 9, 215175, 1314, 136, 17198, 1290, 206, 9, 56359, 42, 122009, 9, 16466, 16, 87344, 4537, 9, 4717, 78381, 6, 159958, 7, 15, 24480, 618, 4, 527, 22693, 5428, 4, 2777, 24480, 9874, 4, 43523, 594, 4, 803, 18392, 33189, 18, 4, 43523, 24447, 12399, 100, 24955, 83658, 9626, 144057, 15, 839, 22335, 16, 136, 24955, 83658, 83479, 15, 39102, 724, 16, 678, 645, 2789, 1328, 4589, 42, 122009, 115774, 23, 805, 1328, 46876, 7, 136, 53894, 1940, 42227, 41159, 17721, 823, 425, 4, 27512, 98722, 206, 136, 5531, 4970, 919, 17336, 5, 2], [250004, 20080, 618, 83, 82775, 47, 479, 9, 1517, 73, 53894, 333, 80581, 110117, 18811, 5256, 1295, 51, 152526, 297, 7986, 390, 124416, 538, 35431, 214, 98, 15044, 25737, 136, 7108, 43701, 23, 756, 135355, 7, 5, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [250004, 581, 63773, 119455, 6, 147797, 88203, 7, 645, 70, 21, 3285, 10269, 5, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], 'attention_mask': [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]]}  # noqa: E501
+        # fmt: on
+
+        self.tokenizer_integration_test_util(
+            expected_encoding=expected_encoding,
+            model_name="facebook/mbart-large-50",
+            revision="d3913889c59cd5c9e456b269c376325eabad57e2",
+        )
+
+    # overwrite from test_tokenization_common to speed up test
+    def test_save_pretrained(self):
+        if not self.test_slow_tokenizer:
+            # as we don't have a slow version, we can't compare the outputs between slow and fast versions
+            return
+
+        self.tokenizers_list[0] = (self.rust_tokenizer_class, "hf-internal-testing/tiny-random-mbart50", {})
+        for tokenizer, pretrained_name, kwargs in self.tokenizers_list:
+            with self.subTest(f"{tokenizer.__class__.__name__} ({pretrained_name})"):
+                tokenizer_r = self.rust_tokenizer_class.from_pretrained(pretrained_name, **kwargs)
+                tokenizer_p = self.tokenizer_class.from_pretrained(pretrained_name, **kwargs)
+
+                tmpdirname2 = tempfile.mkdtemp()
+
+                tokenizer_r_files = tokenizer_r.save_pretrained(tmpdirname2)
+                tokenizer_p_files = tokenizer_p.save_pretrained(tmpdirname2)
+
+                # Checks it save with the same files + the tokenizer.json file for the fast one
+                self.assertTrue(any("tokenizer.json" in f for f in tokenizer_r_files))
+                tokenizer_r_files = tuple(f for f in tokenizer_r_files if "tokenizer.json" not in f)
+                self.assertSequenceEqual(tokenizer_r_files, tokenizer_p_files)
+
+                # Checks everything loads correctly in the same way
+                tokenizer_rp = tokenizer_r.from_pretrained(tmpdirname2)
+                tokenizer_pp = tokenizer_p.from_pretrained(tmpdirname2)
+
+                # Check special tokens are set accordingly on Rust and Python
+                for key in tokenizer_pp.special_tokens_map:
+                    self.assertTrue(hasattr(tokenizer_rp, key))
+                    # self.assertEqual(getattr(tokenizer_rp, key), getattr(tokenizer_pp, key))
+                    # self.assertEqual(getattr(tokenizer_rp, key + "_id"), getattr(tokenizer_pp, key + "_id"))
+
+                shutil.rmtree(tmpdirname2)
+
+                # Save tokenizer rust, legacy_format=True
+                tmpdirname2 = tempfile.mkdtemp()
+
+                tokenizer_r_files = tokenizer_r.save_pretrained(tmpdirname2, legacy_format=True)
+                tokenizer_p_files = tokenizer_p.save_pretrained(tmpdirname2)
+
+                # Checks it save with the same files
+                self.assertSequenceEqual(tokenizer_r_files, tokenizer_p_files)
+
+                # Checks everything loads correctly in the same way
+                tokenizer_rp = tokenizer_r.from_pretrained(tmpdirname2)
+                tokenizer_pp = tokenizer_p.from_pretrained(tmpdirname2)
+
+                # Check special tokens are set accordingly on Rust and Python
+                for key in tokenizer_pp.special_tokens_map:
+                    self.assertTrue(hasattr(tokenizer_rp, key))
+
+                shutil.rmtree(tmpdirname2)
+
+                # Save tokenizer rust, legacy_format=False
+                tmpdirname2 = tempfile.mkdtemp()
+
+                tokenizer_r_files = tokenizer_r.save_pretrained(tmpdirname2, legacy_format=False)
+                tokenizer_p_files = tokenizer_p.save_pretrained(tmpdirname2)
+
+                # Checks it saved the tokenizer.json file
+                self.assertTrue(any("tokenizer.json" in f for f in tokenizer_r_files))
+
+                # Checks everything loads correctly in the same way
+                tokenizer_rp = tokenizer_r.from_pretrained(tmpdirname2)
+                tokenizer_pp = tokenizer_p.from_pretrained(tmpdirname2)
+
+                # Check special tokens are set accordingly on Rust and Python
+                for key in tokenizer_pp.special_tokens_map:
+                    self.assertTrue(hasattr(tokenizer_rp, key))
+
+                shutil.rmtree(tmpdirname2)
+
 
 @require_torch
 @require_sentencepiece
 @require_tokenizers
-class MBartOneToManyIntegrationTest(unittest.TestCase):
+class MBart50OneToManyIntegrationTest(unittest.TestCase):
     checkpoint_name = "facebook/mbart-large-50-one-to-many-mmt"
     src_text = [
         " UN Chief Says There Is No Military Solution in Syria",
@@ -194,3 +299,20 @@ class MBartOneToManyIntegrationTest(unittest.TestCase):
 
         self.assertEqual(batch.input_ids.shape[1], 3)
         self.assertEqual(batch.decoder_input_ids.shape[1], 10)
+
+    @require_torch
+    def test_tokenizer_translation(self):
+        inputs = self.tokenizer._build_translation_inputs(
+            "A test", return_tensors="pt", src_lang="en_XX", tgt_lang="ar_AR"
+        )
+
+        self.assertEqual(
+            nested_simplify(inputs),
+            {
+                # en_XX, A, test, EOS
+                "input_ids": [[250004, 62, 3034, 2]],
+                "attention_mask": [[1, 1, 1, 1]],
+                # ar_AR
+                "forced_bos_token_id": 250001,
+            },
+        )

@@ -36,9 +36,13 @@ VOCAB_FILES_NAMES = {
 }
 
 PRETRAINED_VOCAB_FILES_MAP = {
-    "src_vocab_file": {"stas/tiny-wmt19-en-de": "https://cdn.huggingface.co/stas/tiny-wmt19-en-de/vocab-src.json"},
-    "tgt_vocab_file": {"stas/tiny-wmt19-en-de": "https://cdn.huggingface.co/stas/tiny-wmt19-en-de/vocab-tgt.json"},
-    "merges_file": {"stas/tiny-wmt19-en-de": "https://cdn.huggingface.co/stas/tiny-wmt19-en-de/merges.txt"},
+    "src_vocab_file": {
+        "stas/tiny-wmt19-en-de": "https://huggingface.co/stas/tiny-wmt19-en-de/resolve/main/vocab-src.json"
+    },
+    "tgt_vocab_file": {
+        "stas/tiny-wmt19-en-de": "https://huggingface.co/stas/tiny-wmt19-en-de/resolve/main/vocab-tgt.json"
+    },
+    "merges_file": {"stas/tiny-wmt19-en-de": "https://huggingface.co/stas/tiny-wmt19-en-de/resolve/main/merges.txt"},
 }
 
 PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {"stas/tiny-wmt19-en-de": 1024}
@@ -136,39 +140,42 @@ class FSMTTokenizer(PreTrainedTokenizer):
 
     - Moses preprocessing and tokenization.
     - Normalizing all inputs text.
-    - The arguments ``special_tokens`` and the function ``set_special_tokens``, can be used to add additional symbols
-      (like "__classify__") to a vocabulary.
-    - The argument :obj:`langs` defines a pair of languages.
+    - The arguments `special_tokens` and the function `set_special_tokens`, can be used to add additional symbols (like
+      "__classify__") to a vocabulary.
+    - The argument `langs` defines a pair of languages.
 
-    This tokenizer inherits from :class:`~transformers.PreTrainedTokenizer` which contains most of the main methods.
-    Users should refer to this superclass for more information regarding those methods.
+    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
+    this superclass for more information regarding those methods.
 
     Args:
-        langs (:obj:`List[str]`):
-            A list of two languages to translate from and to, for instance :obj:`["en", "ru"]`.
-        src_vocab_file (:obj:`str`):
+        langs (`List[str]`):
+            A list of two languages to translate from and to, for instance `["en", "ru"]`.
+        src_vocab_file (`str`):
             File containing the vocabulary for the source language.
-        tgt_vocab_file (:obj:`st`):
+        tgt_vocab_file (`st`):
             File containing the vocabulary for the target language.
-        merges_file (:obj:`str`):
+        merges_file (`str`):
             File containing the merges.
-        do_lower_case (:obj:`bool`, `optional`, defaults to :obj:`False`):
+        do_lower_case (`bool`, *optional*, defaults to `False`):
             Whether or not to lowercase the input when tokenizing.
-        unk_token (:obj:`str`, `optional`, defaults to :obj:`"<unk>"`):
+        unk_token (`str`, *optional*, defaults to `"<unk>"`):
             The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
             token instead.
-        bos_token (:obj:`str`, `optional`, defaults to :obj:`"<s>"`):
+        bos_token (`str`, *optional*, defaults to `"<s>"`):
             The beginning of sequence token that was used during pretraining. Can be used a sequence classifier token.
 
-            .. note::
+            <Tip>
 
-                When building a sequence using special tokens, this is not the token that is used for the beginning of
-                sequence. The token used is the :obj:`cls_token`.
-        sep_token (:obj:`str`, `optional`, defaults to :obj:`"</s>"`):
+            When building a sequence using special tokens, this is not the token that is used for the beginning of
+            sequence. The token used is the `cls_token`.
+
+            </Tip>
+
+        sep_token (`str`, *optional*, defaults to `"</s>"`):
             The separator token, which is used when building a sequence from multiple sequences, e.g. two sequences for
             sequence classification or for a text and a question for question answering. It is also used as the last
             token of a sequence built with special tokens.
-        pad_token (:obj:`str`, `optional`, defaults to :obj:`"<pad>"`):
+        pad_token (`str`, *optional*, defaults to `"<pad>"`):
             The token used for padding, for example when batching sequences of different lengths.
 
     """
@@ -370,7 +377,7 @@ class FSMTTokenizer(PreTrainedTokenizer):
         return split_tokens
 
     def _convert_token_to_id(self, token):
-        """ Converts a token (str) in an id using the vocab. """
+        """Converts a token (str) in an id using the vocab."""
         return self.encoder.get(token, self.encoder.get(self.unk_token))
 
     def _convert_id_to_token(self, index):
@@ -378,7 +385,7 @@ class FSMTTokenizer(PreTrainedTokenizer):
         return self.decoder.get(index, self.unk_token)
 
     def convert_tokens_to_string(self, tokens):
-        """ Converts a sequence of tokens (string) in a single string. """
+        """Converts a sequence of tokens (string) in a single string."""
 
         # remove BPE
         tokens = [t.replace(" ", "").replace("</w>", " ") for t in tokens]
@@ -394,17 +401,17 @@ class FSMTTokenizer(PreTrainedTokenizer):
         Build model inputs from a sequence or a pair of sequence for sequence classification tasks by concatenating and
         adding special tokens. A FAIRSEQ Transformer sequence has the following format:
 
-        - single sequence: ``<s> X </s>``
-        - pair of sequences: ``<s> A </s> B </s>``
+        - single sequence: `<s> X </s>`
+        - pair of sequences: `<s> A </s> B </s>`
 
         Args:
-            token_ids_0 (:obj:`List[int]`):
+            token_ids_0 (`List[int]`):
                 List of IDs to which the special tokens will be added.
-            token_ids_1 (:obj:`List[int]`, `optional`):
+            token_ids_1 (`List[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            :obj:`List[int]`: List of `input IDs <../glossary.html#input-ids>`__ with the appropriate special tokens.
+            `List[int]`: List of [input IDs](../glossary#input-ids) with the appropriate special tokens.
         """
         sep = [self.sep_token_id]
 
@@ -418,31 +425,23 @@ class FSMTTokenizer(PreTrainedTokenizer):
     ) -> List[int]:
         """
         Retrieve sequence ids from a token list that has no special tokens added. This method is called when adding
-        special tokens using the tokenizer ``prepare_for_model`` method.
+        special tokens using the tokenizer `prepare_for_model` method.
 
         Args:
-            token_ids_0 (:obj:`List[int]`):
+            token_ids_0 (`List[int]`):
                 List of IDs.
-            token_ids_1 (:obj:`List[int]`, `optional`):
+            token_ids_1 (`List[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
-            already_has_special_tokens (:obj:`bool`, `optional`, defaults to :obj:`False`):
+            already_has_special_tokens (`bool`, *optional*, defaults to `False`):
                 Whether or not the token list is already formatted with special tokens for the model.
 
         Returns:
-            :obj:`List[int]`: A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
+            `List[int]`: A list of integers in the range [0, 1]: 1 for a special token, 0 for a sequence token.
         """
 
         if already_has_special_tokens:
-            if token_ids_1 is not None:
-                raise ValueError(
-                    "You should not supply a second sequence if the provided sequence of "
-                    "ids is already formatted with special tokens for the model."
-                )
-            return list(
-                map(
-                    lambda x: 1 if x in [self.sep_token_id, self.cls_token_id] else 0,
-                    token_ids_0,
-                )
+            return super().get_special_tokens_mask(
+                token_ids_0=token_ids_0, token_ids_1=token_ids_1, already_has_special_tokens=True
             )
         # no bos used in fairseq
         if token_ids_1 is not None:
@@ -456,22 +455,21 @@ class FSMTTokenizer(PreTrainedTokenizer):
         Create a mask from the two sequences passed to be used in a sequence-pair classification task. A FAIRSEQ
         Transformer sequence pair mask has the following format:
 
-        ::
+        ```
+        0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
+        | first sequence    | second sequence |
+        ```
 
-            0 0 0 0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1 1
-            | first sequence    | second sequence |
-
-        If :obj:`token_ids_1` is :obj:`None`, this method only returns the first portion of the mask (0s).
+        If `token_ids_1` is `None`, this method only returns the first portion of the mask (0s).
 
         Args:
-            token_ids_0 (:obj:`List[int]`):
+            token_ids_0 (`List[int]`):
                 List of IDs.
-            token_ids_1 (:obj:`List[int]`, `optional`):
+            token_ids_1 (`List[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            :obj:`List[int]`: List of `token type IDs <../glossary.html#token-type-ids>`_ according to the given
-            sequence(s).
+            `List[int]`: List of [token type IDs](../glossary#token-type-ids) according to the given sequence(s).
 
         Creates a mask from the two sequences passed to be used in a sequence-pair classification task. An
         FAIRSEQ_TRANSFORMER sequence pair mask has the following format:
@@ -485,7 +483,7 @@ class FSMTTokenizer(PreTrainedTokenizer):
 
     def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
         if not os.path.isdir(save_directory):
-            logger.error("Vocabulary path ({}) should be a directory".format(save_directory))
+            logger.error(f"Vocabulary path ({save_directory}) should be a directory")
             return
 
         src_vocab_file = os.path.join(
@@ -510,8 +508,8 @@ class FSMTTokenizer(PreTrainedTokenizer):
             for bpe_tokens, token_index in sorted(self.bpe_ranks.items(), key=lambda kv: kv[1]):
                 if index != token_index:
                     logger.warning(
-                        "Saving vocabulary to {}: BPE merge indices are not consecutive."
-                        " Please check that the tokenizer is not corrupted!".format(merges_file)
+                        f"Saving vocabulary to {merges_file}: BPE merge indices are not consecutive."
+                        " Please check that the tokenizer is not corrupted!"
                     )
                     index = token_index
                 writer.write(" ".join(bpe_tokens) + "\n")

@@ -227,14 +227,14 @@ class TensorFlowBenchmark(Benchmark):
 
                 return min(runtimes) / 10.0
             except ResourceExhaustedError as e:
-                self.print_fn("Doesn't fit on GPU. {}".format(e))
+                self.print_fn(f"Doesn't fit on GPU. {e}")
 
     def _measure_memory(self, func: Callable[[], None]) -> [Memory, MemorySummary]:
         logger.info(
-            "Note that TensorFlow allocates more memory than"
-            "it might need to speed up computation."
-            "The memory reported here corresponds to the memory"
-            "reported by `nvidia-smi`, which can vary depending"
+            "Note that TensorFlow allocates more memory than "
+            "it might need to speed up computation. "
+            "The memory reported here corresponds to the memory "
+            "reported by `nvidia-smi`, which can vary depending "
             "on total available memory on the GPU that is used."
         )
         with self.args.strategy.scope():
@@ -290,5 +290,5 @@ class TensorFlowBenchmark(Benchmark):
 
                 return memory, summary
             except ResourceExhaustedError as e:
-                self.print_fn("Doesn't fit on GPU. {}".format(e))
+                self.print_fn(f"Doesn't fit on GPU. {e}")
                 return "N/A", None

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import copy
 import unittest
 
@@ -29,9 +28,11 @@ from transformers import (
     MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
     MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING,
     MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
+    TapasConfig,
     is_torch_available,
 )
 from transformers.file_utils import cached_property
+from transformers.models.auto import get_values
 from transformers.testing_utils import require_scatter, require_torch, slow, torch_device
 
 from .test_configuration_common import ConfigTester
@@ -42,7 +43,6 @@ if is_torch_available():
     import torch
 
     from transformers import (
-        TapasConfig,
         TapasForMaskedLM,
         TapasForQuestionAnswering,
         TapasForSequenceClassification,
@@ -62,7 +62,7 @@ if is_torch_available():
 
 
 class TapasModelTester:
-    """You can also import this e.g from .test_modeling_tapas import TapasModelTester """
+    """You can also import this e.g from .test_modeling_tapas import TapasModelTester"""
 
     def __init__(
         self,
@@ -105,7 +105,7 @@ class TapasModelTester:
         average_logits_per_cell=True,
         select_one_column=True,
         allow_empty_column_selection=False,
-        init_cell_selection_weights_to_zero=False,
+        init_cell_selection_weights_to_zero=True,
         reset_position_index_per_cell=True,
         disable_per_token_loss=False,
         scope=None,
@@ -182,7 +182,24 @@ class TapasModelTester:
             float_answer = floats_tensor([self.batch_size]).to(torch_device)
             aggregation_labels = ids_tensor([self.batch_size], self.num_aggregation_labels).to(torch_device)
 
-        config = TapasConfig(
+        config = self.get_config()
+
+        return (
+            config,
+            input_ids,
+            input_mask,
+            token_type_ids,
+            sequence_labels,
+            token_labels,
+            labels,
+            numeric_values,
+            numeric_values_scale,
+            float_answer,
+            aggregation_labels,
+        )
+
+    def get_config(self):
+        return TapasConfig(
             vocab_size=self.vocab_size,
             hidden_size=self.hidden_size,
             num_hidden_layers=self.num_hidden_layers,
@@ -217,20 +234,6 @@ class TapasModelTester:
             init_cell_selection_weights_to_zero=self.init_cell_selection_weights_to_zero,
             reset_position_index_per_cell=self.reset_position_index_per_cell,
             disable_per_token_loss=self.disable_per_token_loss,
-        )
-
-        return (
-            config,
-            input_ids,
-            input_mask,
-            token_type_ids,
-            sequence_labels,
-            token_labels,
-            labels,
-            numeric_values,
-            numeric_values_scale,
-            float_answer,
-            aggregation_labels,
         )
 
     def create_and_check_model(
@@ -425,7 +428,7 @@ class TapasModelTest(ModelTesterMixin, unittest.TestCase):
 
     def _prepare_for_class(self, inputs_dict, model_class, return_labels=False):
         inputs_dict = copy.deepcopy(inputs_dict)
-        if model_class in MODEL_FOR_MULTIPLE_CHOICE_MAPPING.values():
+        if model_class in get_values(MODEL_FOR_MULTIPLE_CHOICE_MAPPING):
             inputs_dict = {
                 k: v.unsqueeze(1).expand(-1, self.model_tester.num_choices, -1).contiguous()
                 if isinstance(v, torch.Tensor) and v.ndim > 1
@@ -434,9 +437,9 @@ class TapasModelTest(ModelTesterMixin, unittest.TestCase):
             }
 
         if return_labels:
-            if model_class in MODEL_FOR_MULTIPLE_CHOICE_MAPPING.values():
+            if model_class in get_values(MODEL_FOR_MULTIPLE_CHOICE_MAPPING):
                 inputs_dict["labels"] = torch.ones(self.model_tester.batch_size, dtype=torch.long, device=torch_device)
-            elif model_class in MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING.values():
+            elif model_class in get_values(MODEL_FOR_TABLE_QUESTION_ANSWERING_MAPPING):
                 inputs_dict["labels"] = torch.zeros(
                     (self.model_tester.batch_size, self.model_tester.seq_length), dtype=torch.long, device=torch_device
                 )
@@ -457,17 +460,17 @@ class TapasModelTest(ModelTesterMixin, unittest.TestCase):
                     self.model_tester.batch_size, dtype=torch.float, device=torch_device
                 )
             elif model_class in [
-                *MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING.values(),
-                *MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING.values(),
+                *get_values(MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING),
+                *get_values(MODEL_FOR_NEXT_SENTENCE_PREDICTION_MAPPING),
             ]:
                 inputs_dict["labels"] = torch.zeros(
                     self.model_tester.batch_size, dtype=torch.long, device=torch_device
                 )
             elif model_class in [
-                *MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING.values(),
-                *MODEL_FOR_CAUSAL_LM_MAPPING.values(),
-                *MODEL_FOR_MASKED_LM_MAPPING.values(),
-                *MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING.values(),
+                *get_values(MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING),
+                *get_values(MODEL_FOR_CAUSAL_LM_MAPPING),
+                *get_values(MODEL_FOR_MASKED_LM_MAPPING),
+                *get_values(MODEL_FOR_SEQ_TO_SEQ_CAUSAL_LM_MAPPING),
             ]:
                 inputs_dict["labels"] = torch.zeros(
                     (self.model_tester.batch_size, self.model_tester.seq_length), dtype=torch.long, device=torch_device

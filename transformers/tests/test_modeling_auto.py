@@ -13,20 +13,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+import copy
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
-from transformers import is_torch_available
+from transformers import BertConfig, is_torch_available
+from transformers.models.auto.configuration_auto import CONFIG_MAPPING
 from transformers.testing_utils import (
-    DUMMY_UNKWOWN_IDENTIFIER,
+    DUMMY_UNKNOWN_IDENTIFIER,
     SMALL_MODEL_IDENTIFIER,
     require_scatter,
     require_torch,
     slow,
 )
 
+from .test_modeling_bert import BertModelTester
+
+
+sys.path.append(str(Path(__file__).parent.parent / "utils"))
+
+from test_module.custom_configuration import CustomConfig  # noqa E402
+
 
 if is_torch_available():
+    import torch
+
+    from test_module.custom_modeling import CustomModel
     from transformers import (
         AutoConfig,
         AutoModel,
@@ -39,13 +53,14 @@ if is_torch_available():
         AutoModelForTableQuestionAnswering,
         AutoModelForTokenClassification,
         AutoModelWithLMHead,
-        BertConfig,
         BertForMaskedLM,
         BertForPreTraining,
         BertForQuestionAnswering,
         BertForSequenceClassification,
         BertForTokenClassification,
         BertModel,
+        FunnelBaseModel,
+        FunnelModel,
         GPT2Config,
         GPT2LMHeadModel,
         RobertaForMaskedLM,
@@ -85,8 +100,11 @@ class AutoModelTest(unittest.TestCase):
             model, loading_info = AutoModel.from_pretrained(model_name, output_loading_info=True)
             self.assertIsNotNone(model)
             self.assertIsInstance(model, BertModel)
-            for value in loading_info.values():
-                self.assertEqual(len(value), 0)
+
+            self.assertEqual(len(loading_info["missing_keys"]), 0)
+            self.assertEqual(len(loading_info["unexpected_keys"]), 8)
+            self.assertEqual(len(loading_info["mismatched_keys"]), 0)
+            self.assertEqual(len(loading_info["error_msgs"]), 0)
 
     @slow
     def test_model_for_pretraining_from_pretrained(self):
@@ -213,10 +231,25 @@ class AutoModelTest(unittest.TestCase):
         self.assertEqual(model.num_parameters(only_trainable=True), 14410)
 
     def test_from_identifier_from_model_type(self):
-        model = AutoModelWithLMHead.from_pretrained(DUMMY_UNKWOWN_IDENTIFIER)
+        model = AutoModelWithLMHead.from_pretrained(DUMMY_UNKNOWN_IDENTIFIER)
         self.assertIsInstance(model, RobertaForMaskedLM)
         self.assertEqual(model.num_parameters(), 14410)
         self.assertEqual(model.num_parameters(only_trainable=True), 14410)
+
+    def test_from_pretrained_with_tuple_values(self):
+        # For the auto model mapping, FunnelConfig has two models: FunnelModel and FunnelBaseModel
+        model = AutoModel.from_pretrained("sgugger/funnel-random-tiny")
+        self.assertIsInstance(model, FunnelModel)
+
+        config = copy.deepcopy(model.config)
+        config.architectures = ["FunnelBaseModel"]
+        model = AutoModel.from_config(config)
+        self.assertIsInstance(model, FunnelBaseModel)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            model.save_pretrained(tmp_dir)
+            model = AutoModel.from_pretrained(tmp_dir)
+            self.assertIsInstance(model, FunnelBaseModel)
 
     def test_parents_and_children_in_mappings(self):
         # Test that the children are placed before the parents in the mappings, as the `instanceof` will be triggered
@@ -242,6 +275,119 @@ class AutoModelTest(unittest.TestCase):
                     assert not issubclass(
                         child_config, parent_config
                     ), f"{child_config.__name__} is child of {parent_config.__name__}"
-                    assert not issubclass(
-                        child_model, parent_model
-                    ), f"{child_config.__name__} is child of {parent_config.__name__}"
+
+                    # Tuplify child_model and parent_model since some of them could be tuples.
+                    if not isinstance(child_model, (list, tuple)):
+                        child_model = (child_model,)
+                    if not isinstance(parent_model, (list, tuple)):
+                        parent_model = (parent_model,)
+
+                    for child, parent in [(a, b) for a in child_model for b in parent_model]:
+                        assert not issubclass(child, parent), f"{child.__name__} is child of {parent.__name__}"
+
+    def test_from_pretrained_dynamic_model_local(self):
+        try:
+            AutoConfig.register("custom", CustomConfig)
+            AutoModel.register(CustomConfig, CustomModel)
+
+            config = CustomConfig(hidden_size=32)
+            model = CustomModel(config)
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                model.save_pretrained(tmp_dir)
+
+                new_model = AutoModel.from_pretrained(tmp_dir, trust_remote_code=True)
+                for p1, p2 in zip(model.parameters(), new_model.parameters()):
+                    self.assertTrue(torch.equal(p1, p2))
+
+        finally:
+            if "custom" in CONFIG_MAPPING._extra_content:
+                del CONFIG_MAPPING._extra_content["custom"]
+            if CustomConfig in MODEL_MAPPING._extra_content:
+                del MODEL_MAPPING._extra_content[CustomConfig]
+
+    def test_from_pretrained_dynamic_model_distant(self):
+        model = AutoModel.from_pretrained("hf-internal-testing/test_dynamic_model", trust_remote_code=True)
+        self.assertEqual(model.__class__.__name__, "NewModel")
+
+        # This one uses a relative import to a util file, this checks it is downloaded and used properly.
+        model = AutoModel.from_pretrained("hf-internal-testing/test_dynamic_model_with_util", trust_remote_code=True)
+        self.assertEqual(model.__class__.__name__, "NewModel")
+
+    def test_new_model_registration(self):
+        AutoConfig.register("custom", CustomConfig)
+
+        auto_classes = [
+            AutoModel,
+            AutoModelForCausalLM,
+            AutoModelForMaskedLM,
+            AutoModelForPreTraining,
+            AutoModelForQuestionAnswering,
+            AutoModelForSequenceClassification,
+            AutoModelForTokenClassification,
+        ]
+
+        try:
+            for auto_class in auto_classes:
+                with self.subTest(auto_class.__name__):
+                    # Wrong config class will raise an error
+                    with self.assertRaises(ValueError):
+                        auto_class.register(BertConfig, CustomModel)
+                    auto_class.register(CustomConfig, CustomModel)
+                    # Trying to register something existing in the Transformers library will raise an error
+                    with self.assertRaises(ValueError):
+                        auto_class.register(BertConfig, BertModel)
+
+                    # Now that the config is registered, it can be used as any other config with the auto-API
+                    tiny_config = BertModelTester(self).get_config()
+                    config = CustomConfig(**tiny_config.to_dict())
+                    model = auto_class.from_config(config)
+                    self.assertIsInstance(model, CustomModel)
+
+                    with tempfile.TemporaryDirectory() as tmp_dir:
+                        model.save_pretrained(tmp_dir)
+                        new_model = auto_class.from_pretrained(tmp_dir)
+                        # The model is a CustomModel but from the new dynamically imported class.
+                        self.assertIsInstance(new_model, CustomModel)
+
+        finally:
+            if "custom" in CONFIG_MAPPING._extra_content:
+                del CONFIG_MAPPING._extra_content["custom"]
+            for mapping in (
+                MODEL_MAPPING,
+                MODEL_FOR_PRETRAINING_MAPPING,
+                MODEL_FOR_QUESTION_ANSWERING_MAPPING,
+                MODEL_FOR_SEQUENCE_CLASSIFICATION_MAPPING,
+                MODEL_FOR_TOKEN_CLASSIFICATION_MAPPING,
+                MODEL_FOR_CAUSAL_LM_MAPPING,
+                MODEL_FOR_MASKED_LM_MAPPING,
+            ):
+                if CustomConfig in mapping._extra_content:
+                    del mapping._extra_content[CustomConfig]
+
+    def test_repo_not_found(self):
+        with self.assertRaisesRegex(
+            EnvironmentError, "bert-base is not a local folder and is not a valid model identifier"
+        ):
+            _ = AutoModel.from_pretrained("bert-base")
+
+    def test_revision_not_found(self):
+        with self.assertRaisesRegex(
+            EnvironmentError, r"aaaaaa is not a valid git identifier \(branch name, tag name or commit id\)"
+        ):
+            _ = AutoModel.from_pretrained(DUMMY_UNKNOWN_IDENTIFIER, revision="aaaaaa")
+
+    def test_model_file_not_found(self):
+        with self.assertRaisesRegex(
+            EnvironmentError,
+            "hf-internal-testing/config-no-model does not appear to have a file named pytorch_model.bin",
+        ):
+            _ = AutoModel.from_pretrained("hf-internal-testing/config-no-model")
+
+    def test_model_from_tf_suggestion(self):
+        with self.assertRaisesRegex(EnvironmentError, "Use `from_tf=True` to load this model"):
+            _ = AutoModel.from_pretrained("hf-internal-testing/tiny-bert-tf-only")
+
+    def test_model_from_flax_suggestion(self):
+        with self.assertRaisesRegex(EnvironmentError, "Use `from_flax=True` to load this model"):
+            _ = AutoModel.from_pretrained("hf-internal-testing/tiny-bert-flax-only")

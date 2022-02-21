@@ -312,7 +312,7 @@ class TapasTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
 
     def test_offsets_with_special_characters(self):
         for tokenizer, pretrained_name, kwargs in self.tokenizers_list:
-            with self.subTest("{} ({})".format(tokenizer.__class__.__name__, pretrained_name)):
+            with self.subTest(f"{tokenizer.__class__.__name__} ({pretrained_name})"):
                 tokenizer_r = self.rust_tokenizer_class.from_pretrained(pretrained_name, **kwargs)
 
                 sentence = f"A, naïve {tokenizer_r.mask_token} AllenNLP sentence."
@@ -807,18 +807,18 @@ class TapasTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
                     empty_tokens = tokenizer(table, padding=True, pad_to_multiple_of=8)
                     normal_tokens = tokenizer(table, "This is a sample input", padding=True, pad_to_multiple_of=8)
                     for key, value in empty_tokens.items():
-                        self.assertEqual(len(value) % 8, 0, "BatchEncoding.{} is not multiple of 8".format(key))
+                        self.assertEqual(len(value) % 8, 0, f"BatchEncoding.{key} is not multiple of 8")
                     for key, value in normal_tokens.items():
-                        self.assertEqual(len(value) % 8, 0, "BatchEncoding.{} is not multiple of 8".format(key))
+                        self.assertEqual(len(value) % 8, 0, f"BatchEncoding.{key} is not multiple of 8")
 
                     normal_tokens = tokenizer(table, "This", pad_to_multiple_of=8)
                     for key, value in normal_tokens.items():
-                        self.assertNotEqual(len(value) % 8, 0, "BatchEncoding.{} is not multiple of 8".format(key))
+                        self.assertNotEqual(len(value) % 8, 0, f"BatchEncoding.{key} is not multiple of 8")
 
                     # Should also work with truncation
                     normal_tokens = tokenizer(table, "This", padding=True, truncation=True, pad_to_multiple_of=8)
                     for key, value in normal_tokens.items():
-                        self.assertEqual(len(value) % 8, 0, "BatchEncoding.{} is not multiple of 8".format(key))
+                        self.assertEqual(len(value) % 8, 0, f"BatchEncoding.{key} is not multiple of 8")
 
     @unittest.skip("TAPAS cannot handle `prepare_for_model` without passing by `encode_plus` or `batch_encode_plus`")
     def test_prepare_for_model(self):
@@ -903,6 +903,10 @@ class TapasTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
                 self.assertDictEqual(before_vocab, after_vocab)
 
                 shutil.rmtree(tmpdirname)
+
+    @unittest.skip("Not implemented")
+    def test_right_and_left_truncation(self):
+        pass
 
     def test_right_and_left_padding(self):
         tokenizers = self.get_tokenizers(do_lower_case=False)
@@ -1075,6 +1079,37 @@ class TapasTokenizationTest(TokenizerTesterMixin, unittest.TestCase):
         # Ensure that the input IDs are still truncated when no max_length is specified
         self.assertListEqual(new_encoded_inputs, dropped_encoded_inputs)
         self.assertLessEqual(len(new_encoded_inputs), 20)
+
+    @slow
+    def test_min_max_question_length(self):
+        data = {
+            "Actors": ["Brad Pitt", "Leonardo Di Caprio", "George Clooney"],
+            "Age": ["56", "45", "59"],
+            "Number of movies": ["87", "53", "69"],
+            "Date of birth": ["18 december 1963", "11 november 1974", "6 may 1961"],
+        }
+        queries = "When was Brad Pitt born?"
+        table = pd.DataFrame.from_dict(data)
+
+        # test max_question_length
+        tokenizer = TapasTokenizer.from_pretrained("lysandre/tapas-temporary-repo", max_question_length=2)
+
+        encoding = tokenizer(table=table, queries=queries)
+
+        # query should not be tokenized as it's longer than the specified max_question_length
+        expected_results = [101, 102]
+
+        self.assertListEqual(encoding.input_ids[:2], expected_results)
+
+        # test min_question_length
+        tokenizer = TapasTokenizer.from_pretrained("lysandre/tapas-temporary-repo", min_question_length=30)
+
+        encoding = tokenizer(table=table, queries=queries)
+
+        # query should not be tokenized as it's shorter than the specified min_question_length
+        expected_results = [101, 102]
+
+        self.assertListEqual(encoding.input_ids[:2], expected_results)
 
     @is_pt_tf_cross_test
     def test_batch_encode_plus_tensors(self):

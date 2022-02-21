@@ -19,7 +19,7 @@ import copy
 import tempfile
 import unittest
 
-from transformers import is_torch_available
+from transformers import MBartConfig, is_torch_available
 from transformers.file_utils import cached_property
 from transformers.testing_utils import require_sentencepiece, require_tokenizers, require_torch, slow, torch_device
 
@@ -34,7 +34,6 @@ if is_torch_available():
     from transformers import (
         AutoTokenizer,
         BatchEncoding,
-        MBartConfig,
         MBartForCausalLM,
         MBartForConditionalGeneration,
         MBartForQuestionAnswering,
@@ -52,6 +51,7 @@ def prepare_mbart_inputs_dict(
     decoder_attention_mask=None,
     head_mask=None,
     decoder_head_mask=None,
+    cross_attn_head_mask=None,
 ):
     if attention_mask is None:
         attention_mask = input_ids.ne(config.pad_token_id)
@@ -61,6 +61,8 @@ def prepare_mbart_inputs_dict(
         head_mask = torch.ones(config.encoder_layers, config.encoder_attention_heads, device=torch_device)
     if decoder_head_mask is None:
         decoder_head_mask = torch.ones(config.decoder_layers, config.decoder_attention_heads, device=torch_device)
+    if cross_attn_head_mask is None:
+        cross_attn_head_mask = torch.ones(config.decoder_layers, config.decoder_attention_heads, device=torch_device)
     return {
         "input_ids": input_ids,
         "decoder_input_ids": decoder_input_ids,
@@ -68,10 +70,10 @@ def prepare_mbart_inputs_dict(
         "decoder_attention_mask": attention_mask,
         "head_mask": head_mask,
         "decoder_head_mask": decoder_head_mask,
+        "cross_attn_head_mask": cross_attn_head_mask,
     }
 
 
-@require_torch
 class MBartModelTester:
     def __init__(
         self,
@@ -88,7 +90,7 @@ class MBartModelTester:
         hidden_act="gelu",
         hidden_dropout_prob=0.1,
         attention_probs_dropout_prob=0.1,
-        max_position_embeddings=20,
+        max_position_embeddings=100,
         eos_token_id=2,
         pad_token_id=1,
         bos_token_id=0,
@@ -120,7 +122,12 @@ class MBartModelTester:
 
         decoder_input_ids = ids_tensor([self.batch_size, self.seq_length], self.vocab_size)
 
-        config = MBartConfig(
+        config = self.get_config()
+        inputs_dict = prepare_mbart_inputs_dict(config, input_ids, decoder_input_ids)
+        return config, inputs_dict
+
+    def get_config(self):
+        return MBartConfig(
             vocab_size=self.vocab_size,
             d_model=self.hidden_size,
             encoder_layers=self.num_hidden_layers,
@@ -136,8 +143,6 @@ class MBartModelTester:
             bos_token_id=self.bos_token_id,
             pad_token_id=self.pad_token_id,
         )
-        inputs_dict = prepare_mbart_inputs_dict(config, input_ids, decoder_input_ids)
-        return config, inputs_dict
 
     def prepare_config_and_inputs_for_common(self):
         config, inputs_dict = self.prepare_config_and_inputs()
@@ -359,7 +364,9 @@ class MBartEnroIntegrationTest(AbstractSeq2SeqIntegrationTest):
 
     @slow
     def test_enro_generate_batch(self):
-        batch: BatchEncoding = self.tokenizer(self.src_text, return_tensors="pt").to(torch_device)
+        batch: BatchEncoding = self.tokenizer(self.src_text, return_tensors="pt", padding=True, truncation=True).to(
+            torch_device
+        )
         translated_tokens = self.model.generate(**batch)
         decoded = self.tokenizer.batch_decode(translated_tokens, skip_special_tokens=True)
         assert self.tgt_text == decoded
@@ -390,8 +397,10 @@ class MBartEnroIntegrationTest(AbstractSeq2SeqIntegrationTest):
             add_final_layer_norm=True,
         )
         lm_model = MBartForConditionalGeneration(config).to(torch_device)
-        context = torch.Tensor([[71, 82, 18, 33, 46, 91, 2], [68, 34, 26, 58, 30, 2, 1]]).long().to(torch_device)
-        summary = torch.Tensor([[82, 71, 82, 18, 2], [58, 68, 2, 1, 1]]).long().to(torch_device)
+        context = torch.tensor(
+            [[71, 82, 18, 33, 46, 91, 2], [68, 34, 26, 58, 30, 2, 1]], device=torch_device, dtype=torch.long
+        )
+        summary = torch.tensor([[82, 71, 82, 18, 2], [58, 68, 2, 1, 1]], device=torch_device, dtype=torch.long)
         result = lm_model(input_ids=context, decoder_input_ids=summary, labels=summary)
         expected_shape = (*summary.shape, config.vocab_size)
         self.assertEqual(result.logits.shape, expected_shape)

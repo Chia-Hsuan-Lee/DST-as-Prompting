@@ -57,10 +57,32 @@ def mish(x):
 
 def gelu_fast(x):
     x = tf.convert_to_tensor(x)
-    coeff1 = tf.cast(0.7978845608, x.dtype)
-    coeff2 = tf.cast(0.044715, x.dtype)
+    coeff1 = tf.cast(0.044715, x.dtype)
+    coeff2 = tf.cast(0.7978845608, x.dtype)
 
     return 0.5 * x * (1.0 + tf.tanh(x * coeff2 * (1.0 + coeff1 * x * x)))
+
+
+def quick_gelu(x):
+    x = tf.convert_to_tensor(x)
+    coeff = tf.cast(1.702, x.dtype)
+    return x * tf.math.sigmoid(coeff * x)
+
+
+def glu(x, axis=-1):
+    """
+    Gated Linear Unit. Implementation as defined in the original paper (see https://arxiv.org/abs/1612.08083), where
+    the input `x` is split in two halves across a dimension (`axis`), A and B, returning A * sigmoid(B).
+
+    Args:
+        `x`: float Tensor to perform activation
+        `axis`: dimension across which `x` be split in half
+
+    Returns:
+        `x` with the GLU activation applied (with its size halved across the dimension `axis`).
+    """
+    a, b = tf.split(x, 2, axis=axis)
+    return a * tf.math.sigmoid(b)
 
 
 if version.parse(tf.version.VERSION) >= version.parse("2.4"):
@@ -84,6 +106,8 @@ ACT2FN = {
     "mish": mish,
     "tanh": tf.keras.activations.tanh,
     "gelu_fast": gelu_fast,
+    "quick_gelu": quick_gelu,
+    "glu": glu,
 }
 
 
@@ -91,4 +115,4 @@ def get_tf_activation(activation_string):
     if activation_string in ACT2FN:
         return ACT2FN[activation_string]
     else:
-        raise KeyError("function {} not found in ACT2FN mapping {}".format(activation_string, list(ACT2FN.keys())))
+        raise KeyError(f"function {activation_string} not found in ACT2FN mapping {list(ACT2FN.keys())}")

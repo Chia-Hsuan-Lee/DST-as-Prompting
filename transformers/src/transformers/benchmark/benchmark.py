@@ -111,7 +111,8 @@ class PyTorchBenchmark(Benchmark):
 
         if self.args.fp16:
             logger.info("Running training in Mixed Precision...")
-            assert self.args.is_gpu, "Mixed precision is possible only for GPU."
+            if not self.args.is_gpu:
+                raise ValueError("Mixed precision is possible only for GPU.")
             # amp seems to have memory leaks so that memory usage
             # is measured using .half() for now https://github.com/NVIDIA/apex/issues/439
             model.half()
@@ -170,7 +171,8 @@ class PyTorchBenchmark(Benchmark):
 
         if self.args.fp16:
             logger.info("Running training in Mixed Precision...")
-            assert self.args.is_gpu, "Mixed precision is possible only for GPU."
+            if not self.args.is_gpu:
+                raise ValueError("Mixed precision is possible only for GPU.")
 
             # amp seems to have memory leaks so that memory usage
             # is measured using .half() for now https://github.com/NVIDIA/apex/issues/439
@@ -218,7 +220,7 @@ class PyTorchBenchmark(Benchmark):
 
             return min(runtimes) / 10.0
         except RuntimeError as e:
-            self.print_fn("Doesn't fit on GPU. {}".format(e))
+            self.print_fn(f"Doesn't fit on GPU. {e}")
             return "N/A"
 
     def _measure_memory(self, func: Callable[[], None]) -> [Memory, MemorySummary]:
@@ -263,5 +265,5 @@ class PyTorchBenchmark(Benchmark):
 
             return memory, summary
         except RuntimeError as e:
-            self.print_fn("Doesn't fit on GPU. {}".format(e))
+            self.print_fn(f"Doesn't fit on GPU. {e}")
             return "N/A", None

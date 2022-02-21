@@ -11,21 +11,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import json
+import os
 import re
 import warnings
 from contextlib import contextmanager
 from pathlib import Path
 from shutil import copyfile
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import sentencepiece
 
 from ...tokenization_utils import PreTrainedTokenizer
+from ...utils import logging
 
 
-vocab_files_names = {
+logger = logging.get_logger(__name__)
+
+VOCAB_FILES_NAMES = {
     "source_spm": "source.spm",
     "target_spm": "target.spm",
     "vocab": "vocab.json",
@@ -33,11 +36,17 @@ vocab_files_names = {
 }
 
 PRETRAINED_VOCAB_FILES_MAP = {
-    "source_spm": {"Helsinki-NLP/opus-mt-en-de": "https://cdn.huggingface.co/Helsinki-NLP/opus-mt-en-de/source.spm"},
-    "target_spm": {"Helsinki-NLP/opus-mt-en-de": "https://cdn.huggingface.co/Helsinki-NLP/opus-mt-en-de/target.spm"},
-    "vocab": {"Helsinki-NLP/opus-mt-en-de": "https://cdn.huggingface.co/Helsinki-NLP/opus-mt-en-de/vocab.json"},
+    "source_spm": {
+        "Helsinki-NLP/opus-mt-en-de": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/source.spm"
+    },
+    "target_spm": {
+        "Helsinki-NLP/opus-mt-en-de": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/target.spm"
+    },
+    "vocab": {
+        "Helsinki-NLP/opus-mt-en-de": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/vocab.json"
+    },
     "tokenizer_config_file": {
-        "Helsinki-NLP/opus-mt-en-de": "https://cdn.huggingface.co/Helsinki-NLP/opus-mt-en-de/tokenizer_config.json"
+        "Helsinki-NLP/opus-mt-en-de": "https://huggingface.co/Helsinki-NLP/opus-mt-en-de/resolve/main/tokenizer_config.json"
     },
 }
 
@@ -49,49 +58,67 @@ PRETRAINED_INIT_CONFIGURATION = {}
 
 class MarianTokenizer(PreTrainedTokenizer):
     r"""
-    Construct a Marian tokenizer. Based on `SentencePiece <https://github.com/google/sentencepiece>`__.
+    Construct a Marian tokenizer. Based on [SentencePiece](https://github.com/google/sentencepiece).
 
-    This tokenizer inherits from :class:`~transformers.PreTrainedTokenizer` which contains most of the main methods.
-    Users should refer to this superclass for more information regarding those methods.
+    This tokenizer inherits from [`PreTrainedTokenizer`] which contains most of the main methods. Users should refer to
+    this superclass for more information regarding those methods.
 
     Args:
-        source_spm (:obj:`str`):
-            `SentencePiece <https://github.com/google/sentencepiece>`__ file (generally has a .spm extension) that
+        source_spm (`str`):
+            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .spm extension) that
             contains the vocabulary for the source language.
-        target_spm (:obj:`str`):
-            `SentencePiece <https://github.com/google/sentencepiece>`__ file (generally has a .spm extension) that
+        target_spm (`str`):
+            [SentencePiece](https://github.com/google/sentencepiece) file (generally has a .spm extension) that
             contains the vocabulary for the target language.
-        source_lang (:obj:`str`, `optional`):
+        source_lang (`str`, *optional*):
             A string representing the source language.
-        target_lang (:obj:`str`, `optional`):
+        target_lang (`str`, *optional*):
             A string representing the target language.
-        unk_token (:obj:`str`, `optional`, defaults to :obj:`"<unk>"`):
+        unk_token (`str`, *optional*, defaults to `"<unk>"`):
             The unknown token. A token that is not in the vocabulary cannot be converted to an ID and is set to be this
             token instead.
-        eos_token (:obj:`str`, `optional`, defaults to :obj:`"</s>"`):
+        eos_token (`str`, *optional*, defaults to `"</s>"`):
             The end of sequence token.
-        pad_token (:obj:`str`, `optional`, defaults to :obj:`"<pad>"`):
+        pad_token (`str`, *optional*, defaults to `"<pad>"`):
             The token used for padding, for example when batching sequences of different lengths.
-        model_max_length (:obj:`int`, `optional`, defaults to 512):
+        model_max_length (`int`, *optional*, defaults to 512):
             The maximum sentence length the model accepts.
-        additional_special_tokens (:obj:`List[str]`, `optional`, defaults to :obj:`["<eop>", "<eod>"]`):
+        additional_special_tokens (`List[str]`, *optional*, defaults to `["<eop>", "<eod>"]`):
             Additional special tokens used by the tokenizer.
+        sp_model_kwargs (`dict`, *optional*):
+            Will be passed to the `SentencePieceProcessor.__init__()` method. The [Python wrapper for
+            SentencePiece](https://github.com/google/sentencepiece/tree/master/python) can be used, among other things,
+            to set:
 
-    Examples::
+            - `enable_sampling`: Enable subword regularization.
+            - `nbest_size`: Sampling parameters for unigram. Invalid for BPE-Dropout.
 
-        >>> from transformers import MarianTokenizer
-        >>> tokenizer = MarianTokenizer.from_pretrained('Helsinki-NLP/opus-mt-en-de')
-        >>> src_texts = [ "I am a small frog.", "Tom asked his teacher for advice."]
-        >>> tgt_texts = ["Ich bin ein kleiner Frosch.", "Tom bat seinen Lehrer um Rat."]  # optional
-        >>> inputs = tokenizer(src_texts, return_tensors="pt", padding=True)
-        >>> with tokenizer.as_target_tokenizer():
-        ...     labels = tokenizer(tgt_texts, return_tensors="pt", padding=True)
-        >>> inputs["labels"] = labels["input_ids"]
-        # keys  [input_ids, attention_mask, labels].
-        >>> outputs = model(**inputs) should work
-    """
+              - `nbest_size = {0,1}`: No sampling is performed.
+              - `nbest_size > 1`: samples from the nbest_size results.
+              - `nbest_size < 0`: assuming that nbest_size is infinite and samples from the all hypothesis (lattice)
+                using forward-filtering-and-backward-sampling algorithm.
 
-    vocab_files_names = vocab_files_names
+            - `alpha`: Smoothing parameter for unigram sampling, and dropout probability of merge operations for
+              BPE-dropout.
+
+    Examples:
+
+    ```python
+    >>> from transformers import MarianTokenizer
+
+    >>> tokenizer = MarianTokenizer.from_pretrained("Helsinki-NLP/opus-mt-en-de")
+    >>> src_texts = ["I am a small frog.", "Tom asked his teacher for advice."]
+    >>> tgt_texts = ["Ich bin ein kleiner Frosch.", "Tom bat seinen Lehrer um Rat."]  # optional
+    >>> inputs = tokenizer(src_texts, return_tensors="pt", padding=True)
+    >>> with tokenizer.as_target_tokenizer():
+    ...     labels = tokenizer(tgt_texts, return_tensors="pt", padding=True)
+    >>> inputs["labels"] = labels["input_ids"]
+    # keys  [input_ids, attention_mask, labels].
+
+    >>> outputs = model(**inputs)  # should work
+    ```"""
+
+    vocab_files_names = VOCAB_FILES_NAMES
     pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
     pretrained_init_configuration = PRETRAINED_INIT_CONFIGURATION
     max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
@@ -109,8 +136,11 @@ class MarianTokenizer(PreTrainedTokenizer):
         eos_token="</s>",
         pad_token="<pad>",
         model_max_length=512,
+        sp_model_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs
-    ):
+    ) -> None:
+        self.sp_model_kwargs = {} if sp_model_kwargs is None else sp_model_kwargs
+
         super().__init__(
             # bos_token=bos_token,  unused. Start decoding with config.decoder_start_token_id
             source_lang=source_lang,
@@ -119,6 +149,7 @@ class MarianTokenizer(PreTrainedTokenizer):
             eos_token=eos_token,
             pad_token=pad_token,
             model_max_length=model_max_length,
+            sp_model_kwargs=self.sp_model_kwargs,
             **kwargs,
         )
         assert Path(source_spm).exists(), f"cannot find spm source {source_spm}"
@@ -134,8 +165,8 @@ class MarianTokenizer(PreTrainedTokenizer):
         self.spm_files = [source_spm, target_spm]
 
         # load SentencePiece model for pre-processing
-        self.spm_source = load_spm(source_spm)
-        self.spm_target = load_spm(target_spm)
+        self.spm_source = load_spm(source_spm, self.sp_model_kwargs)
+        self.spm_target = load_spm(target_spm, self.sp_model_kwargs)
         self.current_spm = self.spm_source
 
         # Multilingual target side: default to using first supported language code.
@@ -159,23 +190,73 @@ class MarianTokenizer(PreTrainedTokenizer):
         return self.encoder.get(token, self.encoder[self.unk_token])
 
     def remove_language_code(self, text: str):
-        """Remove language codes like <<fr>> before sentencepiece"""
+        """Remove language codes like >>fr<< before sentencepiece"""
         match = self.language_code_re.match(text)
         code: list = [match.group(0)] if match else []
         return code, self.language_code_re.sub("", text)
 
     def _tokenize(self, text: str) -> List[str]:
         code, text = self.remove_language_code(text)
-        pieces = self.current_spm.EncodeAsPieces(text)
+        pieces = self.current_spm.encode(text, out_type=str)
         return code + pieces
 
     def _convert_id_to_token(self, index: int) -> str:
-        """Converts an index (integer) in a token (str) using the encoder."""
+        """Converts an index (integer) in a token (str) using the decoder."""
         return self.decoder.get(index, self.unk_token)
 
+    def batch_decode(self, sequences, **kwargs):
+        """
+        Convert a list of lists of token ids into a list of strings by calling decode.
+
+        Args:
+            sequences (`Union[List[int], List[List[int]], np.ndarray, torch.Tensor, tf.Tensor]`):
+                List of tokenized input ids. Can be obtained using the `__call__` method.
+            skip_special_tokens (`bool`, *optional*, defaults to `False`):
+                Whether or not to remove special tokens in the decoding.
+            clean_up_tokenization_spaces (`bool`, *optional*, defaults to `True`):
+                Whether or not to clean up the tokenization spaces.
+            use_source_tokenizer (`bool`, *optional*, defaults to `False`):
+                Whether or not to use the source tokenizer to decode sequences (only applicable in sequence-to-sequence
+                problems).
+            kwargs (additional keyword arguments, *optional*):
+                Will be passed to the underlying model specific decode method.
+
+        Returns:
+            `List[str]`: The list of decoded sentences.
+        """
+        return super().batch_decode(sequences, **kwargs)
+
+    def decode(self, token_ids, **kwargs):
+        """
+        Converts a sequence of ids in a string, using the tokenizer and vocabulary with options to remove special
+        tokens and clean up tokenization spaces.
+
+        Similar to doing `self.convert_tokens_to_string(self.convert_ids_to_tokens(token_ids))`.
+
+        Args:
+            token_ids (`Union[int, List[int], np.ndarray, torch.Tensor, tf.Tensor]`):
+                List of tokenized input ids. Can be obtained using the `__call__` method.
+            skip_special_tokens (`bool`, *optional*, defaults to `False`):
+                Whether or not to remove special tokens in the decoding.
+            clean_up_tokenization_spaces (`bool`, *optional*, defaults to `True`):
+                Whether or not to clean up the tokenization spaces.
+            use_source_tokenizer (`bool`, *optional*, defaults to `False`):
+                Whether or not to use the source tokenizer to decode sequences (only applicable in sequence-to-sequence
+                problems).
+            kwargs (additional keyword arguments, *optional*):
+                Will be passed to the underlying model specific decode method.
+
+        Returns:
+            `str`: The decoded sentence.
+        """
+        return super().decode(token_ids, **kwargs)
+
     def convert_tokens_to_string(self, tokens: List[str]) -> str:
-        """Uses target language sentencepiece model"""
-        return self.spm_target.DecodePieces(tokens)
+        """Uses source spm if _decode_use_source_tokenizer is True, and target spm otherwise"""
+        if self._decode_use_source_tokenizer:
+            return self.spm_source.DecodePieces(tokens)
+        else:
+            return self.spm_target.DecodePieces(tokens)
 
     def build_inputs_with_special_tokens(self, token_ids_0, token_ids_1=None) -> List[int]:
         """Build model inputs from a sequence by appending eos_token_id."""
@@ -199,21 +280,35 @@ class MarianTokenizer(PreTrainedTokenizer):
         return len(self.encoder)
 
     def save_vocabulary(self, save_directory: str, filename_prefix: Optional[str] = None) -> Tuple[str]:
-        save_dir = Path(save_directory)
-        assert save_dir.is_dir(), f"{save_directory} should be a directory"
-        save_json(
-            self.encoder,
-            save_dir / ((filename_prefix + "-" if filename_prefix else "") + self.vocab_files_names["vocab"]),
+        if not os.path.isdir(save_directory):
+            logger.error(f"Vocabulary path ({save_directory}) should be a directory")
+            return
+        saved_files = []
+        out_vocab_file = os.path.join(
+            save_directory, (filename_prefix + "-" if filename_prefix else "") + VOCAB_FILES_NAMES["vocab"]
         )
 
-        for orig, f in zip(["source.spm", "target.spm"], self.spm_files):
-            dest_path = save_dir / ((filename_prefix + "-" if filename_prefix else "") + Path(f).name)
-            if not dest_path.exists():
-                copyfile(f, save_dir / orig)
+        save_json(self.encoder, out_vocab_file)
+        saved_files.append(out_vocab_file)
 
-        return tuple(
-            save_dir / ((filename_prefix + "-" if filename_prefix else "") + f) for f in self.vocab_files_names
-        )
+        for spm_save_filename, spm_orig_path, spm_model in zip(
+            [VOCAB_FILES_NAMES["source_spm"], VOCAB_FILES_NAMES["target_spm"]],
+            self.spm_files,
+            [self.spm_source, self.spm_target],
+        ):
+            spm_save_path = os.path.join(
+                save_directory, (filename_prefix + "-" if filename_prefix else "") + spm_save_filename
+            )
+            if os.path.abspath(spm_orig_path) != os.path.abspath(spm_save_path) and os.path.isfile(spm_orig_path):
+                copyfile(spm_orig_path, spm_save_path)
+                saved_files.append(spm_save_path)
+            elif not os.path.isfile(spm_orig_path):
+                with open(spm_save_path, "wb") as fi:
+                    content_spiece_model = spm_model.serialized_model_proto()
+                    fi.write(content_spiece_model)
+                saved_files.append(spm_save_path)
+
+        return tuple(saved_files)
 
     def get_vocab(self) -> Dict:
         vocab = self.encoder.copy()
@@ -227,11 +322,16 @@ class MarianTokenizer(PreTrainedTokenizer):
 
     def __setstate__(self, d: Dict) -> None:
         self.__dict__ = d
-        self.spm_source, self.spm_target = (load_spm(f) for f in self.spm_files)
+
+        # for backward compatibility
+        if not hasattr(self, "sp_model_kwargs"):
+            self.sp_model_kwargs = {}
+
+        self.spm_source, self.spm_target = (load_spm(f, self.sp_model_kwargs) for f in self.spm_files)
         self.current_spm = self.spm_source
         self._setup_normalizer()
 
-    def num_special_tokens_to_add(self, **unused):
+    def num_special_tokens_to_add(self, *args, **kwargs):
         """Just EOS"""
         return 1
 
@@ -252,8 +352,8 @@ class MarianTokenizer(PreTrainedTokenizer):
             return self._special_token_mask(token_ids_0 + token_ids_1) + [1]
 
 
-def load_spm(path: str) -> sentencepiece.SentencePieceProcessor:
-    spm = sentencepiece.SentencePieceProcessor()
+def load_spm(path: str, sp_model_kwargs: Dict[str, Any]) -> sentencepiece.SentencePieceProcessor:
+    spm = sentencepiece.SentencePieceProcessor(**sp_model_kwargs)
     spm.Load(path)
     return spm
 

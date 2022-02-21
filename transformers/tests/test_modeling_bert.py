@@ -12,12 +12,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-
+import os
+import tempfile
 import unittest
 
-from transformers import is_torch_available
-from transformers.testing_utils import require_torch, slow, torch_device
+from transformers import BertConfig, is_torch_available
+from transformers.models.auto import get_values
+from transformers.testing_utils import require_torch, require_torch_gpu, slow, torch_device
 
 from .test_configuration_common import ConfigTester
 from .test_generation_utils import GenerationTesterMixin
@@ -29,7 +30,6 @@ if is_torch_available():
 
     from transformers import (
         MODEL_FOR_PRETRAINING_MAPPING,
-        BertConfig,
         BertForMaskedLM,
         BertForMultipleChoice,
         BertForNextSentencePrediction,
@@ -111,7 +111,15 @@ class BertModelTester:
             token_labels = ids_tensor([self.batch_size, self.seq_length], self.num_labels)
             choice_labels = ids_tensor([self.batch_size], self.num_choices)
 
-        config = BertConfig(
+        config = self.get_config()
+
+        return config, input_ids, token_type_ids, input_mask, sequence_labels, token_labels, choice_labels
+
+    def get_config(self):
+        """
+        Returns a tiny configuration by default.
+        """
+        return BertConfig(
             vocab_size=self.vocab_size,
             hidden_size=self.hidden_size,
             num_hidden_layers=self.num_hidden_layers,
@@ -125,8 +133,6 @@ class BertModelTester:
             is_decoder=False,
             initializer_range=self.initializer_range,
         )
-
-        return config, input_ids, token_type_ids, input_mask, sequence_labels, token_labels, choice_labels
 
     def prepare_config_and_inputs_for_decoder(self):
         (
@@ -438,13 +444,14 @@ class BertModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase):
         else ()
     )
     all_generative_model_classes = (BertLMHeadModel,) if is_torch_available() else ()
+    fx_compatible = True
 
     # special case for ForPreTraining model
     def _prepare_for_class(self, inputs_dict, model_class, return_labels=False):
         inputs_dict = super()._prepare_for_class(inputs_dict, model_class, return_labels=return_labels)
 
         if return_labels:
-            if model_class in MODEL_FOR_PRETRAINING_MAPPING.values():
+            if model_class in get_values(MODEL_FOR_PRETRAINING_MAPPING):
                 inputs_dict["labels"] = torch.zeros(
                     (self.model_tester.batch_size, self.model_tester.seq_length), dtype=torch.long, device=torch_device
                 )
@@ -548,6 +555,29 @@ class BertModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase):
             model = BertModel.from_pretrained(model_name)
             self.assertIsNotNone(model)
 
+    @slow
+    @require_torch_gpu
+    def test_torchscript_device_change(self):
+        config, inputs_dict = self.model_tester.prepare_config_and_inputs_for_common()
+        for model_class in self.all_model_classes:
+
+            # BertForMultipleChoice behaves incorrectly in JIT environments.
+            if model_class == BertForMultipleChoice:
+                return
+
+            config.torchscript = True
+            model = model_class(config=config)
+
+            inputs_dict = self._prepare_for_class(inputs_dict, model_class)
+            traced_model = torch.jit.trace(
+                model, (inputs_dict["input_ids"].to("cpu"), inputs_dict["attention_mask"].to("cpu"))
+            )
+
+            with tempfile.TemporaryDirectory() as tmp:
+                torch.jit.save(traced_model, os.path.join(tmp, "bert.pt"))
+                loaded = torch.jit.load(os.path.join(tmp, "bert.pt"), map_location=torch_device)
+                loaded(inputs_dict["input_ids"].to(torch_device), inputs_dict["attention_mask"].to(torch_device))
+
 
 @require_torch
 class BertModelIntegrationTest(unittest.TestCase):
@@ -555,35 +585,41 @@ class BertModelIntegrationTest(unittest.TestCase):
     def test_inference_no_head_absolute_embedding(self):
         model = BertModel.from_pretrained("bert-base-uncased")
         input_ids = torch.tensor([[0, 345, 232, 328, 740, 140, 1695, 69, 6078, 1588, 2]])
-        output = model(input_ids)[0]
+        attention_mask = torch.tensor([[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]])
+        with torch.no_grad():
+            output = model(input_ids, attention_mask=attention_mask)[0]
         expected_shape = torch.Size((1, 11, 768))
         self.assertEqual(output.shape, expected_shape)
-        expected_slice = torch.tensor(
-            [[[-0.0483, 0.1188, -0.0313], [-0.0606, 0.1435, 0.0199], [-0.0235, 0.1519, 0.0175]]]
-        )
+        expected_slice = torch.tensor([[[0.4249, 0.1008, 0.7531], [0.3771, 0.1188, 0.7467], [0.4152, 0.1098, 0.7108]]])
 
-        self.assertTrue(torch.allclose(output[:, :3, :3], expected_slice, atol=1e-4))
+        self.assertTrue(torch.allclose(output[:, 1:4, 1:4], expected_slice, atol=1e-4))
 
     @slow
     def test_inference_no_head_relative_embedding_key(self):
         model = BertModel.from_pretrained("zhiheng-huang/bert-base-uncased-embedding-relative-key")
         input_ids = torch.tensor([[0, 345, 232, 328, 740, 140, 1695, 69, 6078, 1588, 2]])
-        output = model(input_ids)[0]
+        attention_mask = torch.tensor([[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]])
+        with torch.no_grad():
+            output = model(input_ids, attention_mask=attention_mask)[0]
         expected_shape = torch.Size((1, 11, 768))
         self.assertEqual(output.shape, expected_shape)
         expected_slice = torch.tensor(
-            [[[0.3492, 0.4126, -0.1484], [0.2274, -0.0549, 0.1623], [0.5889, 0.6797, -0.0189]]]
+            [[[0.0756, 0.3142, -0.5128], [0.3761, 0.3462, -0.5477], [0.2052, 0.3760, -0.1240]]]
         )
 
-        self.assertTrue(torch.allclose(output[:, :3, :3], expected_slice, atol=1e-4))
+        self.assertTrue(torch.allclose(output[:, 1:4, 1:4], expected_slice, atol=1e-4))
 
     @slow
     def test_inference_no_head_relative_embedding_key_query(self):
         model = BertModel.from_pretrained("zhiheng-huang/bert-base-uncased-embedding-relative-key-query")
         input_ids = torch.tensor([[0, 345, 232, 328, 740, 140, 1695, 69, 6078, 1588, 2]])
-        output = model(input_ids)[0]
+        attention_mask = torch.tensor([[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]])
+        with torch.no_grad():
+            output = model(input_ids, attention_mask=attention_mask)[0]
         expected_shape = torch.Size((1, 11, 768))
         self.assertEqual(output.shape, expected_shape)
-        expected_slice = torch.tensor([[[1.1677, 0.5129, 0.9524], [0.6659, 0.5958, 0.6688], [1.1714, 0.1764, 0.6266]]])
+        expected_slice = torch.tensor(
+            [[[0.6496, 0.3784, 0.8203], [0.8148, 0.5656, 0.2636], [-0.0681, 0.5597, 0.7045]]]
+        )
 
-        self.assertTrue(torch.allclose(output[:, :3, :3], expected_slice, atol=1e-4))
+        self.assertTrue(torch.allclose(output[:, 1:4, 1:4], expected_slice, atol=1e-4))

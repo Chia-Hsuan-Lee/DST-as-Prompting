@@ -16,11 +16,12 @@
 
 import unittest
 
-from transformers import is_torch_available
+from transformers import ElectraConfig, is_torch_available
+from transformers.models.auto import get_values
 from transformers.testing_utils import require_torch, slow, torch_device
 
 from .test_configuration_common import ConfigTester
-from .test_modeling_common import ModelTesterMixin, ids_tensor, random_attention_mask
+from .test_modeling_common import ModelTesterMixin, floats_tensor, ids_tensor, random_attention_mask
 
 
 if is_torch_available():
@@ -28,7 +29,7 @@ if is_torch_available():
 
     from transformers import (
         MODEL_FOR_PRETRAINING_MAPPING,
-        ElectraConfig,
+        ElectraForCausalLM,
         ElectraForMaskedLM,
         ElectraForMultipleChoice,
         ElectraForPreTraining,
@@ -88,7 +89,21 @@ class ElectraModelTester:
             choice_labels = ids_tensor([self.batch_size], self.num_choices)
             fake_token_labels = ids_tensor([self.batch_size, self.seq_length], 1)
 
-        config = ElectraConfig(
+        config = self.get_config()
+
+        return (
+            config,
+            input_ids,
+            token_type_ids,
+            input_mask,
+            sequence_labels,
+            token_labels,
+            choice_labels,
+            fake_token_labels,
+        )
+
+    def get_config(self):
+        return ElectraConfig(
             vocab_size=self.vocab_size,
             hidden_size=self.hidden_size,
             num_hidden_layers=self.num_hidden_layers,
@@ -103,6 +118,22 @@ class ElectraModelTester:
             initializer_range=self.initializer_range,
         )
 
+    def prepare_config_and_inputs_for_decoder(self):
+        (
+            config,
+            input_ids,
+            token_type_ids,
+            input_mask,
+            sequence_labels,
+            token_labels,
+            choice_labels,
+            _,
+        ) = self.prepare_config_and_inputs()
+
+        config.is_decoder = True
+        encoder_hidden_states = floats_tensor([self.batch_size, self.seq_length, self.hidden_size])
+        encoder_attention_mask = ids_tensor([self.batch_size, self.seq_length], vocab_size=2)
+
         return (
             config,
             input_ids,
@@ -111,7 +142,8 @@ class ElectraModelTester:
             sequence_labels,
             token_labels,
             choice_labels,
-            fake_token_labels,
+            encoder_hidden_states,
+            encoder_attention_mask,
         )
 
     def create_and_check_electra_model(
@@ -133,6 +165,38 @@ class ElectraModelTester:
         result = model(input_ids)
         self.parent.assertEqual(result.last_hidden_state.shape, (self.batch_size, self.seq_length, self.hidden_size))
 
+    def create_and_check_electra_model_as_decoder(
+        self,
+        config,
+        input_ids,
+        token_type_ids,
+        input_mask,
+        sequence_labels,
+        token_labels,
+        choice_labels,
+        encoder_hidden_states,
+        encoder_attention_mask,
+    ):
+        config.add_cross_attention = True
+        model = ElectraModel(config)
+        model.to(torch_device)
+        model.eval()
+        result = model(
+            input_ids,
+            attention_mask=input_mask,
+            token_type_ids=token_type_ids,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=encoder_attention_mask,
+        )
+        result = model(
+            input_ids,
+            attention_mask=input_mask,
+            token_type_ids=token_type_ids,
+            encoder_hidden_states=encoder_hidden_states,
+        )
+        result = model(input_ids, attention_mask=input_mask, token_type_ids=token_type_ids)
+        self.parent.assertEqual(result.last_hidden_state.shape, (self.batch_size, self.seq_length, self.hidden_size))
+
     def create_and_check_electra_for_masked_lm(
         self,
         config,
@@ -145,6 +209,24 @@ class ElectraModelTester:
         fake_token_labels,
     ):
         model = ElectraForMaskedLM(config=config)
+        model.to(torch_device)
+        model.eval()
+        result = model(input_ids, attention_mask=input_mask, token_type_ids=token_type_ids, labels=token_labels)
+        self.parent.assertEqual(result.logits.shape, (self.batch_size, self.seq_length, self.vocab_size))
+
+    def create_and_check_electra_for_causal_lm(
+        self,
+        config,
+        input_ids,
+        token_type_ids,
+        input_mask,
+        sequence_labels,
+        token_labels,
+        choice_labels,
+        encoder_hidden_states,
+        encoder_attention_mask,
+    ):
+        model = ElectraForCausalLM(config=config)
         model.to(torch_device)
         model.eval()
         result = model(input_ids, attention_mask=input_mask, token_type_ids=token_type_ids, labels=token_labels)
@@ -278,6 +360,7 @@ class ElectraModelTest(ModelTesterMixin, unittest.TestCase):
             ElectraModel,
             ElectraForPreTraining,
             ElectraForMaskedLM,
+            ElectraForCausalLM,
             ElectraForMultipleChoice,
             ElectraForTokenClassification,
             ElectraForSequenceClassification,
@@ -286,13 +369,14 @@ class ElectraModelTest(ModelTesterMixin, unittest.TestCase):
         if is_torch_available()
         else ()
     )
+    fx_compatible = True
 
     # special case for ForPreTraining model
     def _prepare_for_class(self, inputs_dict, model_class, return_labels=False):
         inputs_dict = super()._prepare_for_class(inputs_dict, model_class, return_labels=return_labels)
 
         if return_labels:
-            if model_class in MODEL_FOR_PRETRAINING_MAPPING.values():
+            if model_class in get_values(MODEL_FOR_PRETRAINING_MAPPING):
                 inputs_dict["labels"] = torch.zeros(
                     (self.model_tester.batch_size, self.model_tester.seq_length), dtype=torch.long, device=torch_device
                 )
@@ -308,6 +392,10 @@ class ElectraModelTest(ModelTesterMixin, unittest.TestCase):
     def test_electra_model(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_electra_model(*config_and_inputs)
+
+    def test_electra_model_as_decoder(self):
+        config_and_inputs = self.model_tester.prepare_config_and_inputs_for_decoder()
+        self.model_tester.create_and_check_electra_model_as_decoder(*config_and_inputs)
 
     def test_electra_model_various_embeddings(self):
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
@@ -345,18 +433,23 @@ class ElectraModelTest(ModelTesterMixin, unittest.TestCase):
             model = ElectraModel.from_pretrained(model_name)
             self.assertIsNotNone(model)
 
+    def test_for_causal_lm(self):
+        config_and_inputs = self.model_tester.prepare_config_and_inputs_for_decoder()
+        self.model_tester.create_and_check_electra_for_causal_lm(*config_and_inputs)
+
 
 @require_torch
 class ElectraModelIntegrationTest(unittest.TestCase):
     @slow
     def test_inference_no_head_absolute_embedding(self):
-        model = ElectraForPreTraining.from_pretrained("google/electra-small-discriminator")
+        model = ElectraModel.from_pretrained("google/electra-small-discriminator")
         input_ids = torch.tensor([[0, 345, 232, 328, 740, 140, 1695, 69, 6078, 1588, 2]])
-        output = model(input_ids)[0]
-        expected_shape = torch.Size((1, 11))
+        attention_mask = torch.tensor([[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]])
+        output = model(input_ids, attention_mask=attention_mask)[0]
+        expected_shape = torch.Size((1, 11, 256))
         self.assertEqual(output.shape, expected_shape)
         expected_slice = torch.tensor(
-            [[-8.9253, -4.0305, -3.9306, -3.8774, -4.1873, -4.1280, 0.9429, -4.1672, 0.9281, 0.0410, -3.4823]]
+            [[[0.4471, 0.6821, -0.3265], [0.4627, 0.5255, -0.3668], [0.4532, 0.3313, -0.4344]]]
         )
 
-        self.assertTrue(torch.allclose(output, expected_slice, atol=1e-4))
+        self.assertTrue(torch.allclose(output[:, 1:4, 1:4], expected_slice, atol=1e-4))

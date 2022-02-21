@@ -27,35 +27,51 @@ assignees: ''
 
 Models:
 
-- albert, bert, xlm: @LysandreJik
-- blenderbot, bart, marian, pegasus, encoderdecoder,  t5: @patrickvonplaten, @patil-suraj
-- longformer, reformer, transfoxl, xlnet: @patrickvonplaten
-- fsmt: @stas00
-- funnel: @sgugger
-- gpt2: @patrickvonplaten, @LysandreJik
-- rag: @patrickvonplaten, @lhoestq
-- tensorflow: @jplu
+- ALBERT, BERT, XLM, DeBERTa, DeBERTa-v2, ELECTRA, MobileBert, SqueezeBert: @LysandreJik
+- T5, BART, Marian, Pegasus, EncoderDecoder: @patrickvonplaten
+- Blenderbot, MBART: @patil-suraj
+- Longformer, Reformer, TransfoXL, XLNet, FNet, BigBird: @patrickvonplaten
+- FSMT: @stas00
+- Funnel: @sgugger
+- GPT-2, GPT: @patrickvonplaten, @LysandreJik
+- RAG, DPR: @patrickvonplaten, @lhoestq
+- TensorFlow: @Rocketknight1
+- JAX/Flax: @patil-suraj
+- TAPAS, LayoutLM, LayoutLMv2, LUKE, ViT, BEiT, DEiT, DETR, CANINE: @NielsRogge
+- GPT-Neo, GPT-J, CLIP: @patil-suraj
+- Wav2Vec2, HuBERT, SpeechEncoderDecoder, UniSpeech, UniSpeechSAT, SEW, SEW-D, Speech2Text: @patrickvonplaten, @anton-l
+
+If the model isn't in the list, ping @LysandreJik who will redirect you to the correct contributor.
 
 Library:
 
-- benchmarks: @patrickvonplaten
-- deepspeed: @stas00
-- ray/raytune: @richardliaw, @amogkam
-- text generation: @patrickvonplaten
-- tokenizers: @n1t0, @LysandreJik
-- trainer: @sgugger
-- pipelines: @LysandreJik
+- Benchmarks: @patrickvonplaten
+- Deepspeed: @stas00
+- Ray/raytune: @richardliaw, @amogkam
+- Text generation: @patrickvonplaten @narsil
+- Tokenizers: @SaulLu
+- Trainer: @sgugger
+- Pipelines: @Narsil
+- Speech: @patrickvonplaten, @anton-l
+- Vision: @NielsRogge, @sgugger
 
 Documentation: @sgugger
 
+Model hub:
+
+- for issues with a model, report at https://discuss.huggingface.co/ and tag the model's creator.
+
 HF projects:
 
-- nlp datasets: [different repo](https://github.com/huggingface/nlp)
+- datasets: [different repo](https://github.com/huggingface/datasets)
 - rust tokenizers: [different repo](https://github.com/huggingface/tokenizers)
 
 Examples:
 
 - maintained examples (not research project or legacy): @sgugger, @patil-suraj
+
+For research projetcs, please ping the contributor directly. For example, on the following projects:
+
 - research_projects/bert-loses-patience: @JetRunner
 - research_projects/distillation: @VictorSanh
 

@@ -13,11 +13,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 import random
 import unittest
 
-from transformers import is_torch_available
+from transformers import XLNetConfig, is_torch_available
 from transformers.testing_utils import require_torch, slow, torch_device
 
 from .test_configuration_common import ConfigTester
@@ -29,7 +28,6 @@ if is_torch_available():
     import torch
 
     from transformers import (
-        XLNetConfig,
         XLNetForMultipleChoice,
         XLNetForQuestionAnswering,
         XLNetForQuestionAnsweringSimple,
@@ -131,7 +129,25 @@ class XLNetModelTester:
             is_impossible_labels = ids_tensor([self.batch_size], 2).float()
             token_labels = ids_tensor([self.batch_size, self.seq_length], self.type_vocab_size)
 
-        config = XLNetConfig(
+        config = self.get_config()
+
+        return (
+            config,
+            input_ids_1,
+            input_ids_2,
+            input_ids_q,
+            perm_mask,
+            input_mask,
+            target_mapping,
+            segment_ids,
+            lm_labels,
+            sequence_labels,
+            is_impossible_labels,
+            token_labels,
+        )
+
+    def get_config(self):
+        return XLNetConfig(
             vocab_size=self.vocab_size,
             d_model=self.hidden_size,
             n_head=self.num_attention_heads,
@@ -148,21 +164,6 @@ class XLNetModelTester:
             bos_token_id=self.bos_token_id,
             pad_token_id=self.pad_token_id,
             eos_token_id=self.eos_token_id,
-        )
-
-        return (
-            config,
-            input_ids_1,
-            input_ids_2,
-            input_ids_q,
-            perm_mask,
-            input_mask,
-            target_mapping,
-            segment_ids,
-            lm_labels,
-            sequence_labels,
-            is_impossible_labels,
-            token_labels,
         )
 
     def set_seed(self):
@@ -525,6 +526,7 @@ class XLNetModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase)
     all_generative_model_classes = (
         (XLNetLMHeadModel,) if is_torch_available() else ()
     )  # TODO (PVP): Check other models whether language generation is also applicable
+
     test_pruning = False
 
     # XLNet has 2 QA models -> need to manually set the correct labels for one of them here
@@ -555,7 +557,7 @@ class XLNetModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase)
         self.model_tester.create_and_check_xlnet_base_model(*config_and_inputs)
 
     def test_xlnet_base_model_use_mems(self):
-        # checking that in auto-regressive mode, :obj:`use_mems` gives the same results
+        # checking that in auto-regressive mode, `use_mems` gives the same results
         self.model_tester.set_seed()
         config_and_inputs = self.model_tester.prepare_config_and_inputs()
         self.model_tester.create_and_check_xlnet_model_use_mems(*config_and_inputs)
@@ -592,6 +594,18 @@ class XLNetModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase)
     def test_retain_grad_hidden_states_attentions(self):
         # xlnet cannot keep gradients in attentions or hidden states
         return
+
+    # overwrite from test_modeling_common
+    def _mock_init_weights(self, module):
+        if hasattr(module, "weight") and module.weight is not None:
+            module.weight.data.fill_(3)
+        if hasattr(module, "bias") and module.bias is not None:
+            module.bias.data.fill_(3)
+
+        for param in ["q", "k", "v", "o", "r", "r_r_bias", "r_s_bias", "r_w_bias", "seg_embed", "mask_emb"]:
+            if hasattr(module, param) and getattr(module, param) is not None:
+                weight = getattr(module, param)
+                weight.data.fill_(3)
 
     def _check_hidden_states_for_generate(
         self, batch_size, hidden_states, min_length, max_length, config, use_cache=False, num_beam_groups=1

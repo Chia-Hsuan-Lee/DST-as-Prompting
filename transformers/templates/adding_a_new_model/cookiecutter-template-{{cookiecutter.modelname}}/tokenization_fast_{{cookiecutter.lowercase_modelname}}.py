@@ -1,5 +1,5 @@
 # coding=utf-8
-# Copyright {{cookiecutter.authors}} and The HuggingFace Inc. team. All rights reserved.
+# Copyright 2022 {{cookiecutter.authors}} and The HuggingFace Inc. team. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,12 +42,12 @@ PRETRAINED_INIT_CONFIGURATION = {
 
 class {{cookiecutter.camelcase_modelname}}TokenizerFast(BertTokenizerFast):
     r"""
-    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's `tokenizers` library).
+    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's *tokenizers* library).
 
-    :class:`~transformers.{{cookiecutter.camelcase_modelname}}TokenizerFast` is identical to :class:`~transformers.BertTokenizerFast` and runs
+    [`~{{cookiecutter.camelcase_modelname}}TokenizerFast`] is identical to [`BertTokenizerFast`] and runs
     end-to-end tokenization: punctuation splitting and wordpiece.
 
-    Refer to superclass :class:`~transformers.BertTokenizerFast` for usage examples and documentation concerning
+    Refer to superclass [`BertTokenizerFast`] for usage examples and documentation concerning
     parameters.
     """
 
@@ -64,6 +64,8 @@ from .tokenization_{{cookiecutter.lowercase_modelname}} import {{cookiecutter.ca
 
 
 logger = logging.get_logger(__name__)
+
+VOCAB_FILES_NAMES = {"vocab_file": "vocab.json", "merges_file": "merges.txt", "tokenizer_file": "tokenizer.json"}
 
 PRETRAINED_VOCAB_FILES_MAP = {
     "vocab_file": {
@@ -84,15 +86,16 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
 
 class {{cookiecutter.camelcase_modelname}}TokenizerFast(BartTokenizerFast):
     r"""
-    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's `tokenizers` library).
+    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's *tokenizers* library).
 
-    :class:`~transformers.{{cookiecutter.camelcase_modelname}}TokenizerFast` is identical to :class:`~transformers.BartTokenizerFast` and runs
+    [`~{{cookiecutter.camelcase_modelname}}TokenizerFast`] is identical to [`BartTokenizerFast`] and runs
     end-to-end tokenization: punctuation splitting and wordpiece.
 
-    Refer to superclass :class:`~transformers.BartTokenizerFast` for usage examples and documentation concerning
+    Refer to superclass [`BartTokenizerFast`] for usage examples and documentation concerning
     parameters.
     """
 
+    vocab_files_names = VOCAB_FILES_NAMES
     pretrained_vocab_files_map = PRETRAINED_VOCAB_FILES_MAP
     max_model_input_sizes = PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES
     slow_tokenizer_class = {{cookiecutter.camelcase_modelname}}Tokenizer
@@ -109,9 +112,16 @@ from .tokenization_{{cookiecutter.lowercase_modelname}} import {{cookiecutter.ca
 
 logger = logging.get_logger(__name__)
 
-VOCAB_FILES_NAMES = {}
+VOCAB_FILES_NAMES = {"vocab_file": "vocab.txt", "tokenizer_file": "tokenizer.json"}
 
-PRETRAINED_VOCAB_FILES_MAP = {}
+PRETRAINED_VOCAB_FILES_MAP = {
+    "vocab_file": {
+        "{{cookiecutter.checkpoint_identifier}}": "https://huggingface.co/{{cookiecutter.checkpoint_identifier}}/resolve/main/vocab.txt",
+    },
+    "tokenizer_file": {
+        "{{cookiecutter.checkpoint_identifier}}": "https://huggingface.co/{{cookiecutter.checkpoint_identifier}}/resolve/main/tokenizer.json",
+    },
+}
 
 PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     "{{cookiecutter.checkpoint_identifier}}": 1024,
@@ -119,10 +129,10 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
 
 class {{cookiecutter.camelcase_modelname}}TokenizerFast(PreTrainedTokenizerFast):
     """
-    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's `tokenizers` library).
+    Construct a "fast" {{cookiecutter.modelname}} tokenizer (backed by HuggingFace's *tokenizers* library).
 
     Args:
-        vocab_file (:obj:`str`):
+        vocab_file (`str`):
             Path to the vocabulary file.
     """
 
@@ -172,13 +182,13 @@ class {{cookiecutter.camelcase_modelname}}TokenizerFast(PreTrainedTokenizerFast)
         {{cookiecutter.modelname}} does not make use of token type ids, therefore a list of zeros is returned.
 
         Args:
-            token_ids_0 (:obj:`List[int]`):
+            token_ids_0 (`List[int]`):
                 List of IDs.
-            token_ids_1 (:obj:`List[int]`, `optional`):
+            token_ids_1 (`List[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            :obj:`List[int]`:  List of zeros.
+            `List[int]`:  List of zeros.
         """
         sep = [self.sep_token_id]
         cls = [self.cls_token_id]

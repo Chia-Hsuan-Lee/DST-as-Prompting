@@ -19,20 +19,22 @@ from transformers import GPT2Config, is_tf_available
 from transformers.testing_utils import require_tf, slow
 
 from .test_configuration_common import ConfigTester
-from .test_modeling_tf_common import TFModelTesterMixin, ids_tensor
+from .test_modeling_tf_common import TFModelTesterMixin, floats_tensor, ids_tensor
+from .test_modeling_tf_core import TFCoreModelTesterMixin
 
 
 if is_tf_available():
     import tensorflow as tf
 
+    from transformers import GPT2Tokenizer
     from transformers.models.gpt2.modeling_tf_gpt2 import (
         TF_GPT2_PRETRAINED_MODEL_ARCHIVE_LIST,
         TFGPT2DoubleHeadsModel,
         TFGPT2ForSequenceClassification,
         TFGPT2LMHeadModel,
         TFGPT2Model,
-        shape_list,
     )
+    from transformers.tf_utils import shape_list
 
 
 class TFGPT2ModelTester:
@@ -100,7 +102,6 @@ class TFGPT2ModelTester:
             # hidden_dropout_prob=self.hidden_dropout_prob,
             # attention_probs_dropout_prob=self.attention_probs_dropout_prob,
             n_positions=self.max_position_embeddings,
-            n_ctx=self.max_position_embeddings,
             # type_vocab_size=self.type_vocab_size,
             # initializer_range=self.initializer_range
             bos_token_id=self.bos_token_id,
@@ -121,6 +122,35 @@ class TFGPT2ModelTester:
             sequence_labels,
             token_labels,
             choice_labels,
+        )
+
+    def prepare_config_and_inputs_for_decoder(self):
+        (
+            config,
+            input_ids,
+            input_mask,
+            head_mask,
+            token_type_ids,
+            mc_token_ids,
+            sequence_labels,
+            token_labels,
+            choice_labels,
+        ) = self.prepare_config_and_inputs()
+
+        encoder_hidden_states = floats_tensor([self.batch_size, self.seq_length, self.hidden_size])
+        encoder_attention_mask = ids_tensor([self.batch_size, self.seq_length], vocab_size=2)
+
+        return (
+            config,
+            input_ids,
+            input_mask,
+            head_mask,
+            token_type_ids,
+            sequence_labels,
+            token_labels,
+            choice_labels,
+            encoder_hidden_states,
+            encoder_attention_mask,
         )
 
     def create_and_check_gpt2_model(self, config, input_ids, input_mask, head_mask, token_type_ids, *args):
@@ -324,7 +354,7 @@ class TFGPT2ModelTester:
 
 
 @require_tf
-class TFGPT2ModelTest(TFModelTesterMixin, unittest.TestCase):
+class TFGPT2ModelTest(TFModelTesterMixin, TFCoreModelTesterMixin, unittest.TestCase):
 
     all_model_classes = (
         (TFGPT2Model, TFGPT2LMHeadModel, TFGPT2ForSequenceClassification, TFGPT2DoubleHeadsModel)
@@ -399,60 +429,53 @@ class TFGPT2ModelTest(TFModelTesterMixin, unittest.TestCase):
 @require_tf
 class TFGPT2ModelLanguageGenerationTest(unittest.TestCase):
     @slow
-    def test_lm_generate_gpt2(self):
-        model = TFGPT2LMHeadModel.from_pretrained("gpt2")
-        input_ids = tf.convert_to_tensor([[464, 3290]], dtype=tf.int32)  # The dog
-        expected_output_ids = [
-            464,
-            3290,
-            373,
-            1043,
-            287,
-            257,
-            2214,
-            1474,
-            262,
-            16246,
-            286,
-            2688,
-            290,
-            2688,
-            27262,
-            13,
-            198,
-            198,
-            464,
-            3290,
-        ]  # The dog was found in a field near the intersection of West and West Streets.\n\nThe dog
+    def test_lm_generate_distilgpt2(self):
+        model = TFGPT2LMHeadModel.from_pretrained("distilgpt2")
+        input_ids = tf.convert_to_tensor([[464, 1893]], dtype=tf.int32)  # The president
+
+        # The president of the United States, and the president of the United Kingdom, have been in the White
+        # fmt: off
+        expected_output_ids = [464, 1893, 286, 262, 1578, 1829, 11, 290, 262, 1893, 286, 262, 1578, 7526, 11, 423, 587, 287, 262, 2635]
+        # fmt: on
+
         output_ids = model.generate(input_ids, do_sample=False)
         self.assertListEqual(output_ids[0].numpy().tolist(), expected_output_ids)
 
     @slow
-    def test_lm_generate_distilgpt2(self):
+    def test_lm_generate_distilgpt2_batch_special(self):
         model = TFGPT2LMHeadModel.from_pretrained("distilgpt2")
-        input_ids = tf.convert_to_tensor([[464, 1893]], dtype=tf.int32)  # The president
-        expected_output_ids = [
-            464,
-            1893,
-            286,
-            262,
-            1578,
-            1829,
-            11,
-            290,
-            262,
-            1893,
-            286,
-            262,
-            1578,
-            7526,
-            11,
-            423,
-            587,
-            287,
-            262,
-            2635,
-        ]  # The president of the United States, and the president of the United Kingdom, have been in the White
+        tokenizer = GPT2Tokenizer.from_pretrained("distilgpt2")
 
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.padding_side = "left"
+
+        sentences = ["Today is a beautiful day and", "Yesterday was"]
+        input_ids = tokenizer(sentences, return_tensors="tf", padding=True).input_ids
+
+        generation_kwargs = {
+            "bad_words_ids": [tokenizer("is").input_ids, tokenizer("angry about").input_ids],
+            "no_repeat_ngram_size": 2,
+            "do_sample": False,
+            "repetition_penalty": 1.3,
+        }
+
+        output_ids = model.generate(input_ids, **generation_kwargs)
+
+        output_strings = tokenizer.batch_decode(output_ids, skip_special_tokens=True)
+        expected_output_string = [
+            "Today is a beautiful day and I am so happy to be able take part in this amazing event.",
+            "Yesterday was a very busy day for the first time since I started writing this post",
+        ]
+        self.assertListEqual(output_strings, expected_output_string)
+
+    @slow
+    def test_lm_generate_gpt2(self):
+        model = TFGPT2LMHeadModel.from_pretrained("gpt2")
+        input_ids = tf.convert_to_tensor([[464, 3290]], dtype=tf.int32)  # The dog
+
+        # The dog was found in a field near the intersection of West and West Streets.\n\nThe dog
+        # fmt: off
+        expected_output_ids = [464, 3290, 373, 1043, 287, 257, 2214, 1474, 262, 16246, 286, 2688, 290, 2688, 27262, 13, 198, 198, 464, 3290]
+        # fmt: on
         output_ids = model.generate(input_ids, do_sample=False)
         self.assertListEqual(output_ids[0].numpy().tolist(), expected_output_ids)

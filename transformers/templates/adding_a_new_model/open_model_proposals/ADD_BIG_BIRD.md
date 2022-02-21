@@ -73,7 +73,7 @@ exemplary purposes, we will call the PyTorch model to be added to 🤗 Transform
 
 Let's take a look:
 
-![image](../../../docs/source/imgs/transformers_overview.png)
+![image](https://huggingface.co/datasets/huggingface/documentation-images/resolve/main/transformers_overview.png)
 
 As you can see, we do make use of inheritance in 🤗 Transformers, but we
 keep the level of abstraction to an absolute minimum. There are never
@@ -725,7 +725,7 @@ defined by the name of the class attribute you give the layer. Let's
 define a dummy model in PyTorch, called `SimpleModel` as follows:
 
 ```python
-import torch.nn as nn
+from torch import nn
 
 class SimpleModel(nn.Module):
     def __init__(self):

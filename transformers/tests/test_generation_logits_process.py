@@ -24,13 +24,14 @@ from .test_modeling_common import ids_tensor
 
 if is_torch_available():
     import torch
-    import torch.nn.functional as F
+    from torch import nn
 
     from transformers.generation_logits_process import (
         EncoderNoRepeatNGramLogitsProcessor,
         ForcedBOSTokenLogitsProcessor,
         ForcedEOSTokenLogitsProcessor,
         HammingDiversityLogitsProcessor,
+        InfNanRemoveLogitsProcessor,
         LogitsProcessorList,
         MinLengthLogitsProcessor,
         NoBadWordsLogitsProcessor,
@@ -40,6 +41,7 @@ if is_torch_available():
         TemperatureLogitsWarper,
         TopKLogitsWarper,
         TopPLogitsWarper,
+        TypicalLogitsWarper,
     )
 
 
@@ -79,13 +81,13 @@ class LogitsProcessorTest(unittest.TestCase):
         scores[1, 10] = (1 / length) - 0.4  # valley, 1st batch
 
         # compute softmax
-        probs = F.softmax(scores, dim=-1)
+        probs = nn.functional.softmax(scores, dim=-1)
 
         temp_dist_warper_sharper = TemperatureLogitsWarper(temperature=0.5)
         temp_dist_warper_smoother = TemperatureLogitsWarper(temperature=1.3)
 
-        warped_prob_sharp = F.softmax(temp_dist_warper_sharper(input_ids, scores.clone()), dim=-1)
-        warped_prob_smooth = F.softmax(temp_dist_warper_smoother(input_ids, scores.clone()), dim=-1)
+        warped_prob_sharp = nn.functional.softmax(temp_dist_warper_sharper(input_ids, scores.clone()), dim=-1)
+        warped_prob_smooth = nn.functional.softmax(temp_dist_warper_smoother(input_ids, scores.clone()), dim=-1)
 
         # uniform distribution stays uniform
         self.assertTrue(torch.allclose(probs[0, :], warped_prob_sharp[0, :], atol=1e-3))
@@ -189,6 +191,51 @@ class LogitsProcessorTest(unittest.TestCase):
 
         # first batch should keep three tokens, second batch would keep only 1, but due to `min_tokens_to_keep=2` keeps 2.
         self.assertListEqual((filtered_dist != 0.0).to(torch.long).sum(dim=-1).tolist(), [3, 2])
+
+    def test_typical_dist_warper(self):
+        input_ids = None
+        vocab_size = 10
+        batch_size = 2
+
+        # create distribution and take log (inverse to Softmax as taken in TopPLogitsWarper)
+        dist = torch.log(
+            torch.tensor([[0.97, 0.01, 0.01, 0.01], [0.4, 0.2, 0.2, 0.2]], device=torch_device, dtype=torch.float)
+        )
+
+        typical_warp = TypicalLogitsWarper(0.5)
+        filtered_dist = torch.exp(typical_warp(input_ids, dist))
+
+        # dist should be filtered to keep min num values so that sum is >= 0.7
+        # exp (-inf) => 0
+        EXPECTED_FILTERED_DIST = torch.tensor(
+            [[0.97, 0.0, 0.0, 0.0], [0.0, 0.2, 0.2, 0.2]], device=torch_device, dtype=torch.float
+        )
+        self.assertTrue(torch.allclose(filtered_dist, EXPECTED_FILTERED_DIST, atol=1e-3))
+
+        # check special cases
+        length = 5
+
+        logits = self._get_uniform_logits(batch_size=batch_size, length=length)
+        typical_warp_safety_check = TypicalLogitsWarper(mass=0.5, filter_value=0.0, min_tokens_to_keep=3)
+
+        scores = typical_warp_safety_check(input_ids, logits)
+        # uniform dist is not changed
+        self.assertListEqual((scores == 0.0).to(torch.long).sum(dim=-1).tolist(), [0, 0])
+
+        # check edge cases with negative and extreme logits
+        ramp_logits = torch.arange(vocab_size, device=torch_device, dtype=torch.float).unsqueeze(0).repeat(
+            batch_size, 1
+        ) - (vocab_size // 2)
+
+        # make ramp_logits more extreme
+        ramp_logits[1] = ramp_logits[1] * 100.0
+
+        # make sure at least 2 tokens are kept
+        typical_warp = TypicalLogitsWarper(0.7, min_tokens_to_keep=2, filter_value=0.0)
+        filtered_dist = typical_warp(input_ids, ramp_logits)
+
+        # first batch should keep two tokens, second batch would keep only 1, but due to `min_tokens_to_keep=2` keeps 2.
+        self.assertListEqual((filtered_dist != 0.0).to(torch.long).sum(dim=-1).tolist(), [2, 2])
 
     def test_no_repeat_ngram_dist_processor(self):
         vocab_size = 3
@@ -436,3 +483,24 @@ class LogitsProcessorTest(unittest.TestCase):
         scores = self._get_uniform_logits(batch_size, vocab_size)
         scores = logits_processor(input_ids, scores)
         self.assertFalse(torch.isinf(scores).any())
+
+    def test_remove_nan_inf_logits_processor(self):
+        scores = torch.tensor(
+            [[0.0, 0.7, 0.8, float("nan")], [0.1, float("inf"), 0.3, float("-inf")]], device=torch_device
+        )
+        input_ids = ids_tensor((2, 4), vocab_size=20)
+
+        logits_processor = InfNanRemoveLogitsProcessor()
+
+        scores = logits_processor(input_ids, scores)
+
+        self.assertTrue(
+            torch.allclose(
+                scores,
+                torch.tensor(
+                    [[0.0, 0.7, 0.8, 0.0], [0.1, torch.finfo(scores.dtype).max, 0.3, float("-inf")]],
+                    device=torch_device,
+                ),
+                atol=1e-6,
+            )
+        )

@@ -24,9 +24,23 @@ from .tokenization_blenderbot_small import BlenderbotSmallTokenizer
 
 logger = logging.get_logger(__name__)
 
-VOCAB_FILES_NAMES = {}
+VOCAB_FILES_NAMES = {
+    "vocab_file": "vocab.json",
+    "merges_file": "merges.txt",
+    "tokenizer_config_file": "tokenizer_config.json",
+}
 
-PRETRAINED_VOCAB_FILES_MAP = {}
+PRETRAINED_VOCAB_FILES_MAP = {
+    "vocab_file": {
+        "facebook/blenderbot_small-90M": "https://huggingface.co/facebook/blenderbot_small-90M/resolve/main/vocab.json"
+    },
+    "merges_file": {
+        "facebook/blenderbot_small-90M": "https://huggingface.co/facebook/blenderbot_small-90M/resolve/main/merges.txt"
+    },
+    "tokenizer_config_file": {
+        "facebook/blenderbot_small-90M": "https://huggingface.co/facebook/blenderbot_small-90M/resolve/main/tokenizer_config.json"
+    },
+}
 
 PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
     "facebook/blenderbot_small-90M": 512,
@@ -35,10 +49,10 @@ PRETRAINED_POSITIONAL_EMBEDDINGS_SIZES = {
 
 class BlenderbotSmallTokenizerFast(PreTrainedTokenizerFast):
     """
-    Construct a "fast" BlenderbotSmall tokenizer (backed by HuggingFace's `tokenizers` library).
+    Construct a "fast" BlenderbotSmall tokenizer (backed by HuggingFace's *tokenizers* library).
 
     Args:
-        vocab_file (:obj:`str`):
+        vocab_file (`str`):
             Path to the vocabulary file.
     """
 
@@ -49,8 +63,8 @@ class BlenderbotSmallTokenizerFast(PreTrainedTokenizerFast):
 
     def __init__(
         self,
-        vocab_file,
-        merges_file,
+        vocab_file=None,
+        merges_file=None,
         unk_token="<|endoftext|>",
         bos_token="<|endoftext|>",
         eos_token="<|endoftext|>",
@@ -60,8 +74,8 @@ class BlenderbotSmallTokenizerFast(PreTrainedTokenizerFast):
     ):
         super().__init__(
             ByteLevelBPETokenizer(
-                vocab_file=vocab_file,
-                merges_file=merges_file,
+                vocab=vocab_file,
+                merges=merges_file,
                 add_prefix_space=add_prefix_space,
                 trim_offsets=trim_offsets,
             ),
@@ -87,13 +101,13 @@ class BlenderbotSmallTokenizerFast(PreTrainedTokenizerFast):
         does not make use of token type ids, therefore a list of zeros is returned.
 
         Args:
-            token_ids_0 (:obj:`List[int]`):
+            token_ids_0 (`List[int]`):
                 List of IDs.
-            token_ids_1 (:obj:`List[int]`, `optional`):
+            token_ids_1 (`List[int]`, *optional*):
                 Optional second list of IDs for sequence pairs.
 
         Returns:
-            :obj:`List[int]`: List of zeros.
+            `List[int]`: List of zeros.
         """
         sep = [self.sep_token_id]
         cls = [self.cls_token_id]

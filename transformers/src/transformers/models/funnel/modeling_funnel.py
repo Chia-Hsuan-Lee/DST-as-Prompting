@@ -12,7 +12,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-""" PyTorch Funnel Transformer model. """
+""" PyTorch Funnel Transformer model."""
 
 import os
 from dataclasses import dataclass
@@ -21,8 +21,7 @@ from typing import Optional, Tuple
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import CrossEntropyLoss, MSELoss
-from torch.nn import functional as F
+from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
 from ...activations import ACT2FN
 from ...file_utils import (
@@ -49,6 +48,7 @@ logger = logging.get_logger(__name__)
 
 _CONFIG_FOR_DOC = "FunnelConfig"
 _TOKENIZER_FOR_DOC = "FunnelTokenizer"
+_CHECKPOINT_FOR_DOC = "funnel-transformer/small"
 
 FUNNEL_PRETRAINED_MODEL_ARCHIVE_LIST = [
     "funnel-transformer/small",  # B4-4-4H768
@@ -80,13 +80,13 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
         )
         raise
     tf_path = os.path.abspath(tf_checkpoint_path)
-    logger.info("Converting TensorFlow checkpoint from {}".format(tf_path))
+    logger.info(f"Converting TensorFlow checkpoint from {tf_path}")
     # Load weights from TF model
     init_vars = tf.train.list_variables(tf_path)
     names = []
     arrays = []
     for name, shape in init_vars:
-        logger.info("Loading TF weight {} with shape {}".format(name, shape))
+        logger.info(f"Loading TF weight {name} with shape {shape}")
         array = tf.train.load_variable(tf_path, name)
         names.append(name)
         arrays.append(array)
@@ -116,7 +116,7 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
             n in ["adam_v", "adam_m", "AdamWeightDecayOptimizer", "AdamWeightDecayOptimizer_1", "global_step"]
             for n in name
         ):
-            logger.info("Skipping {}".format("/".join(name)))
+            logger.info(f"Skipping {'/'.join(name)}")
             continue
         if name[0] == "generator":
             continue
@@ -143,7 +143,7 @@ def load_tf_weights_in_funnel(model, config, tf_checkpoint_path):
                 try:
                     pointer = getattr(pointer, m_name)
                 except AttributeError:
-                    print("Skipping {}".format("/".join(name)), array.shape)
+                    print(f"Skipping {'/'.join(name)}", array.shape)
                     skipped = True
                     break
         if not skipped:
@@ -184,11 +184,11 @@ class FunnelAttentionStructure(nn.Module):
         self.sin_dropout = nn.Dropout(config.hidden_dropout)
         self.cos_dropout = nn.Dropout(config.hidden_dropout)
         # Track where we are at in terms of pooling from the original input, e.g., by how much the sequence length was
-        # dividide.
+        # divided.
         self.pooling_mult = None
 
     def init_attention_inputs(self, inputs_embeds, attention_mask=None, token_type_ids=None):
-        """ Returns the attention inputs associated to the inputs of the model. """
+        """Returns the attention inputs associated to the inputs of the model."""
         # inputs_embeds has shape batch_size x seq_len x d_model
         # attention_mask and token_type_ids have shape batch_size x seq_len
         self.pooling_mult = 1
@@ -196,7 +196,7 @@ class FunnelAttentionStructure(nn.Module):
         position_embeds = self.get_position_embeds(seq_len, inputs_embeds.dtype, inputs_embeds.device)
         token_type_mat = self.token_type_ids_to_mat(token_type_ids) if token_type_ids is not None else None
         cls_mask = (
-            F.pad(inputs_embeds.new_ones([seq_len - 1, seq_len - 1]), (1, 0, 1, 0))
+            nn.functional.pad(inputs_embeds.new_ones([seq_len - 1, seq_len - 1]), (1, 0, 1, 0))
             if self.config.separate_cls
             else None
         )
@@ -218,7 +218,7 @@ class FunnelAttentionStructure(nn.Module):
         For the factorized attention, it returns the matrices (phi, pi, psi, omega) used in the paper, appendix A.2.2,
         final formula.
 
-        For the relative shif attention, it returns all possible vectors R used in the paper, appendix A.2.1, final
+        For the relative shift attention, it returns all possible vectors R used in the paper, appendix A.2.1, final
         formula.
 
         Paper link: https://arxiv.org/abs/2006.03236
@@ -278,7 +278,7 @@ class FunnelAttentionStructure(nn.Module):
 
                 # Second type
                 pos = pooled_pos
-                stride = 2 ** block_index
+                stride = 2**block_index
                 rel_pos = self.relative_pos(pos, stride)
 
                 rel_pos = rel_pos[:, None] + zero_offset
@@ -297,7 +297,7 @@ class FunnelAttentionStructure(nn.Module):
             # the previous block of the 1st real block. Since the 1st real
             # block always has position 1, the position of the previous block
             # will be at `1 - 2 ** block_index`.
-            cls_pos = pos_id.new_tensor([-(2 ** block_index) + 1])
+            cls_pos = pos_id.new_tensor([-(2**block_index) + 1])
             pooled_pos_id = pos_id[1:-1] if self.config.truncate_seq else pos_id[1:]
             return torch.cat([cls_pos, pooled_pos_id[::2]], 0)
         else:
@@ -368,11 +368,11 @@ class FunnelAttentionStructure(nn.Module):
         stride = (stride, 1)
 
         if mode == "mean":
-            tensor = F.avg_pool2d(tensor, stride, stride=stride, ceil_mode=True)
+            tensor = nn.functional.avg_pool2d(tensor, stride, stride=stride, ceil_mode=True)
         elif mode == "max":
-            tensor = F.max_pool2d(tensor, stride, stride=stride, ceil_mode=True)
+            tensor = nn.functional.max_pool2d(tensor, stride, stride=stride, ceil_mode=True)
         elif mode == "min":
-            tensor = -F.max_pool2d(-tensor, stride, stride=stride, ceil_mode=True)
+            tensor = -nn.functional.max_pool2d(-tensor, stride, stride=stride, ceil_mode=True)
         else:
             raise NotImplementedError("The supported modes are 'mean', 'max' and 'min'.")
 
@@ -383,7 +383,7 @@ class FunnelAttentionStructure(nn.Module):
         return tensor
 
     def pre_attention_pooling(self, output, attention_inputs):
-        """ Pool `output` and the proper parts of `attention_inputs` before the attention layer. """
+        """Pool `output` and the proper parts of `attention_inputs` before the attention layer."""
         position_embeds, token_type_mat, attention_mask, cls_mask = attention_inputs
         if self.config.pool_q_only:
             if self.config.attention_type == "factorized":
@@ -403,7 +403,7 @@ class FunnelAttentionStructure(nn.Module):
         return output, attention_inputs
 
     def post_attention_pooling(self, attention_inputs):
-        """ Pool the proper parts of `attention_inputs` after the attention layer. """
+        """Pool the proper parts of `attention_inputs` after the attention layer."""
         position_embeds, token_type_mat, attention_mask, cls_mask = attention_inputs
         if self.config.pool_q_only:
             self.pooling_mult *= 2
@@ -454,10 +454,10 @@ class FunnelRelMultiheadAttention(nn.Module):
 
         self.post_proj = nn.Linear(n_head * d_head, d_model)
         self.layer_norm = nn.LayerNorm(d_model, eps=config.layer_norm_eps)
-        self.scale = 1.0 / (d_head ** 0.5)
+        self.scale = 1.0 / (d_head**0.5)
 
     def relative_positional_attention(self, position_embeds, q_head, context_len, cls_mask=None):
-        """ Relative attention score for the positional encodings """
+        """Relative attention score for the positional encodings"""
         # q_head has shape batch_size x sea_len x n_head x d_head
         if self.config.attention_type == "factorized":
             # Notations from the paper, appending A.2.2, final formula (https://arxiv.org/abs/2006.03236)
@@ -499,7 +499,7 @@ class FunnelRelMultiheadAttention(nn.Module):
         return positional_attn
 
     def relative_token_type_attention(self, token_type_mat, q_head, cls_mask=None):
-        """ Relative attention score for the token_type_ids """
+        """Relative attention score for the token_type_ids"""
         if token_type_mat is None:
             return 0
         batch_size, seq_len, context_len = token_type_mat.shape
@@ -779,6 +779,8 @@ class FunnelPreTrainedModel(PreTrainedModel):
         elif classname == "FunnelEmbeddings":
             std = 1.0 if self.config.initializer_std is None else self.config.initializer_std
             nn.init.normal_(module.word_embeddings.weight, std=std)
+            if module.word_embeddings.padding_idx is not None:
+                module.word_embeddings.weight.data[module.padding_idx].zero_()
 
 
 class FunnelClassificationHead(nn.Module):
@@ -798,21 +800,21 @@ class FunnelClassificationHead(nn.Module):
 @dataclass
 class FunnelForPreTrainingOutput(ModelOutput):
     """
-    Output type of :class:`~transformers.FunnelForPreTraining`.
+    Output type of [`FunnelForPreTraining`].
 
     Args:
-        loss (`optional`, returned when ``labels`` is provided, ``torch.FloatTensor`` of shape :obj:`(1,)`):
+        loss (*optional*, returned when `labels` is provided, `torch.FloatTensor` of shape `(1,)`):
             Total loss of the ELECTRA-style objective.
-        logits (:obj:`torch.FloatTensor` of shape :obj:`(batch_size, sequence_length)`):
+        logits (`torch.FloatTensor` of shape `(batch_size, sequence_length)`):
             Prediction scores of the head (scores for each token before SoftMax).
-        hidden_states (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``output_hidden_states=True`` is passed or when ``config.output_hidden_states=True``):
-            Tuple of :obj:`torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer)
-            of shape :obj:`(batch_size, sequence_length, hidden_size)`.
+        hidden_states (`tuple(torch.FloatTensor)`, *optional*, returned when `output_hidden_states=True` is passed or when `config.output_hidden_states=True`):
+            Tuple of `torch.FloatTensor` (one for the output of the embeddings + one for the output of each layer) of
+            shape `(batch_size, sequence_length, hidden_size)`.
 
             Hidden-states of the model at the output of each layer plus the initial embedding outputs.
-        attentions (:obj:`tuple(torch.FloatTensor)`, `optional`, returned when ``output_attentions=True`` is passed or when ``config.output_attentions=True``):
-            Tuple of :obj:`torch.FloatTensor` (one for each layer) of shape :obj:`(batch_size, num_heads,
-            sequence_length, sequence_length)`.
+        attentions (`tuple(torch.FloatTensor)`, *optional*, returned when `output_attentions=True` is passed or when `config.output_attentions=True`):
+            Tuple of `torch.FloatTensor` (one for each layer) of shape `(batch_size, num_heads, sequence_length,
+            sequence_length)`.
 
             Attentions weights after the attention softmax, used to compute the weighted average in the self-attention
             heads.
@@ -826,61 +828,59 @@ class FunnelForPreTrainingOutput(ModelOutput):
 
 FUNNEL_START_DOCSTRING = r"""
 
-    The Funnel Transformer model was proposed in `Funnel-Transformer: Filtering out Sequential Redundancy for Efficient
-    Language Processing <https://arxiv.org/abs/2006.03236>`__ by Zihang Dai, Guokun Lai, Yiming Yang, Quoc V. Le.
+    The Funnel Transformer model was proposed in [Funnel-Transformer: Filtering out Sequential Redundancy for Efficient
+    Language Processing](https://arxiv.org/abs/2006.03236) by Zihang Dai, Guokun Lai, Yiming Yang, Quoc V. Le.
 
-    This model inherits from :class:`~transformers.PreTrainedModel`. Check the superclass documentation for the generic
-    methods the library implements for all its model (such as downloading or saving, resizing the input embeddings,
-    pruning heads etc.)
+    This model inherits from [`PreTrainedModel`]. Check the superclass documentation for the generic methods the
+    library implements for all its model (such as downloading or saving, resizing the input embeddings, pruning heads
+    etc.)
 
-    This model is also a PyTorch `torch.nn.Module <https://pytorch.org/docs/stable/nn.html#torch.nn.Module>`__
-    subclass. Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to
-    general usage and behavior.
+    This model is also a PyTorch [torch.nn.Module](https://pytorch.org/docs/stable/nn.html#torch.nn.Module) subclass.
+    Use it as a regular PyTorch Module and refer to the PyTorch documentation for all matter related to general usage
+    and behavior.
 
     Parameters:
-        config (:class:`~transformers.FunnelConfig`): Model configuration class with all the parameters of the model.
+        config ([`FunnelConfig`]): Model configuration class with all the parameters of the model.
             Initializing with a config file does not load the weights associated with the model, only the
-            configuration. Check out the :meth:`~transformers.PreTrainedModel.from_pretrained` method to load the model
-            weights.
+            configuration. Check out the [`~PreTrainedModel.from_pretrained`] method to load the model weights.
 """
 
 FUNNEL_INPUTS_DOCSTRING = r"""
     Args:
-        input_ids (:obj:`torch.LongTensor` of shape :obj:`({0})`):
+        input_ids (`torch.LongTensor` of shape `({0})`):
             Indices of input sequence tokens in the vocabulary.
 
-            Indices can be obtained using :class:`~transformers.BertTokenizer`. See
-            :meth:`transformers.PreTrainedTokenizer.encode` and :meth:`transformers.PreTrainedTokenizer.__call__` for
-            details.
+            Indices can be obtained using [`BertTokenizer`]. See [`PreTrainedTokenizer.encode`] and
+            [`PreTrainedTokenizer.__call__`] for details.
 
-            `What are input IDs? <../glossary.html#input-ids>`__
-        attention_mask (:obj:`torch.FloatTensor` of shape :obj:`({0})`, `optional`):
-            Mask to avoid performing attention on padding token indices. Mask values selected in ``[0, 1]``:
+            [What are input IDs?](../glossary#input-ids)
+        attention_mask (`torch.FloatTensor` of shape `({0})`, *optional*):
+            Mask to avoid performing attention on padding token indices. Mask values selected in `[0, 1]`:
 
             - 1 for tokens that are **not masked**,
             - 0 for tokens that are **masked**.
 
-            `What are attention masks? <../glossary.html#attention-mask>`__
-        token_type_ids (:obj:`torch.LongTensor` of shape :obj:`({0})`, `optional`):
-            Segment token indices to indicate first and second portions of the inputs. Indices are selected in ``[0,
-            1]``:
+            [What are attention masks?](../glossary#attention-mask)
+        token_type_ids (`torch.LongTensor` of shape `({0})`, *optional*):
+            Segment token indices to indicate first and second portions of the inputs. Indices are selected in `[0,
+            1]`:
 
-            - 0 corresponds to a `sentence A` token,
-            - 1 corresponds to a `sentence B` token.
+            - 0 corresponds to a *sentence A* token,
+            - 1 corresponds to a *sentence B* token.
 
-            `What are token type IDs? <../glossary.html#token-type-ids>`_
-        inputs_embeds (:obj:`torch.FloatTensor` of shape :obj:`({0}, hidden_size)`, `optional`):
-            Optionally, instead of passing :obj:`input_ids` you can choose to directly pass an embedded representation.
-            This is useful if you want more control over how to convert :obj:`input_ids` indices into associated
-            vectors than the model's internal embedding lookup matrix.
-        output_attentions (:obj:`bool`, `optional`):
-            Whether or not to return the attentions tensors of all attention layers. See ``attentions`` under returned
+            [What are token type IDs?](../glossary#token-type-ids)
+        inputs_embeds (`torch.FloatTensor` of shape `({0}, hidden_size)`, *optional*):
+            Optionally, instead of passing `input_ids` you can choose to directly pass an embedded representation. This
+            is useful if you want more control over how to convert `input_ids` indices into associated vectors than the
+            model's internal embedding lookup matrix.
+        output_attentions (`bool`, *optional*):
+            Whether or not to return the attentions tensors of all attention layers. See `attentions` under returned
             tensors for more detail.
-        output_hidden_states (:obj:`bool`, `optional`):
-            Whether or not to return the hidden states of all layers. See ``hidden_states`` under returned tensors for
+        output_hidden_states (`bool`, *optional*):
+            Whether or not to return the hidden states of all layers. See `hidden_states` under returned tensors for
             more detail.
-        return_dict (:obj:`bool`, `optional`):
-            Whether or not to return a :class:`~transformers.file_utils.ModelOutput` instead of a plain tuple.
+        return_dict (`bool`, *optional*):
+            Whether or not to return a [`~file_utils.ModelOutput`] instead of a plain tuple.
 """
 
 
@@ -898,7 +898,8 @@ class FunnelBaseModel(FunnelPreTrainedModel):
         self.embeddings = FunnelEmbeddings(config)
         self.encoder = FunnelEncoder(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -908,7 +909,7 @@ class FunnelBaseModel(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=BaseModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -975,7 +976,8 @@ class FunnelModel(FunnelPreTrainedModel):
         self.encoder = FunnelEncoder(config)
         self.decoder = FunnelDecoder(config)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_input_embeddings(self):
         return self.embeddings.word_embeddings
@@ -985,8 +987,8 @@ class FunnelModel(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=BaseModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1080,7 +1082,8 @@ class FunnelForPreTraining(FunnelPreTrainedModel):
 
         self.funnel = FunnelModel(config)
         self.discriminator_predictions = FunnelDiscriminatorPredictions(config)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @replace_return_docstrings(output_type=FunnelForPreTrainingOutput, config_class=_CONFIG_FOR_DOC)
@@ -1096,26 +1099,27 @@ class FunnelForPreTraining(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        labels (``torch.LongTensor`` of shape ``(batch_size, sequence_length)``, `optional`):
-            Labels for computing the ELECTRA-style loss. Input should be a sequence of tokens (see :obj:`input_ids`
-            docstring) Indices should be in ``[0, 1]``:
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the ELECTRA-style loss. Input should be a sequence of tokens (see `input_ids`
+            docstring) Indices should be in `[0, 1]`:
 
             - 0 indicates the token is an original token,
             - 1 indicates the token was replaced.
 
         Returns:
 
-        Examples::
+        Examples:
 
-            >>> from transformers import FunnelTokenizer, FunnelForPreTraining
-            >>> import torch
+        ```python
+        >>> from transformers import FunnelTokenizer, FunnelForPreTraining
+        >>> import torch
 
-            >>> tokenizer = FunnelTokenizer.from_pretrained('funnel-transformer/small')
-            >>> model = FunnelForPreTraining.from_pretrained('funnel-transformer/small')
+        >>> tokenizer = FunnelTokenizer.from_pretrained("funnel-transformer/small")
+        >>> model = FunnelForPreTraining.from_pretrained("funnel-transformer/small")
 
-            >>> inputs = tokenizer("Hello, my dog is cute", return_tensors= "pt")
-            >>> logits = model(**inputs).logits
-        """
+        >>> inputs = tokenizer("Hello, my dog is cute", return_tensors="pt")
+        >>> logits = model(**inputs).logits
+        ```"""
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
         discriminator_hidden_states = self.funnel(
@@ -1154,7 +1158,7 @@ class FunnelForPreTraining(FunnelPreTrainedModel):
         )
 
 
-@add_start_docstrings("""Funnel Transformer Model with a `language modeling` head on top. """, FUNNEL_START_DOCSTRING)
+@add_start_docstrings("""Funnel Transformer Model with a `language modeling` head on top.""", FUNNEL_START_DOCSTRING)
 class FunnelForMaskedLM(FunnelPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
@@ -1162,7 +1166,8 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
         self.funnel = FunnelModel(config)
         self.lm_head = nn.Linear(config.d_model, config.vocab_size)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     def get_output_embeddings(self):
         return self.lm_head
@@ -1172,8 +1177,8 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=MaskedLMOutput,
         config_class=_CONFIG_FOR_DOC,
         mask="<mask>",
@@ -1190,10 +1195,10 @@ class FunnelForMaskedLM(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
-            Labels for computing the masked language modeling loss. Indices should be in ``[-100, 0, ...,
-            config.vocab_size]`` (see ``input_ids`` docstring) Tokens with indices set to ``-100`` are ignored
-            (masked), the loss is only computed for the tokens with labels in ``[0, ..., config.vocab_size]``
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the masked language modeling loss. Indices should be in `[-100, 0, ...,
+            config.vocab_size]` (see `input_ids` docstring) Tokens with indices set to `-100` are ignored (masked), the
+            loss is only computed for the tokens with labels in `[0, ..., config.vocab_size]`
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1238,14 +1243,16 @@ class FunnelForSequenceClassification(FunnelPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         self.num_labels = config.num_labels
+        self.config = config
 
         self.funnel = FunnelBaseModel(config)
         self.classifier = FunnelClassificationHead(config, config.num_labels)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=SequenceClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1262,10 +1269,10 @@ class FunnelForSequenceClassification(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
-            Labels for computing the sequence classification/regression loss. Indices should be in :obj:`[0, ...,
-            config.num_labels - 1]`. If :obj:`config.num_labels == 1` a regression loss is computed (Mean-Square loss),
-            If :obj:`config.num_labels > 1` a classification loss is computed (Cross-Entropy).
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the sequence classification/regression loss. Indices should be in `[0, ...,
+            config.num_labels - 1]`. If `config.num_labels == 1` a regression loss is computed (Mean-Square loss), If
+            `config.num_labels > 1` a classification loss is computed (Cross-Entropy).
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1285,13 +1292,26 @@ class FunnelForSequenceClassification(FunnelPreTrainedModel):
 
         loss = None
         if labels is not None:
-            if self.num_labels == 1:
-                #  We are doing regression
+            if self.config.problem_type is None:
+                if self.num_labels == 1:
+                    self.config.problem_type = "regression"
+                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                    self.config.problem_type = "single_label_classification"
+                else:
+                    self.config.problem_type = "multi_label_classification"
+
+            if self.config.problem_type == "regression":
                 loss_fct = MSELoss()
-                loss = loss_fct(logits.view(-1), labels.view(-1))
-            else:
+                if self.num_labels == 1:
+                    loss = loss_fct(logits.squeeze(), labels.squeeze())
+                else:
+                    loss = loss_fct(logits, labels)
+            elif self.config.problem_type == "single_label_classification":
                 loss_fct = CrossEntropyLoss()
                 loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            elif self.config.problem_type == "multi_label_classification":
+                loss_fct = BCEWithLogitsLoss()
+                loss = loss_fct(logits, labels)
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -1318,11 +1338,12 @@ class FunnelForMultipleChoice(FunnelPreTrainedModel):
 
         self.funnel = FunnelBaseModel(config)
         self.classifier = FunnelClassificationHead(config, 1)
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, num_choices, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
+        processor_class=_TOKENIZER_FOR_DOC,
         checkpoint="funnel-transformer/small-base",
         output_type=MultipleChoiceModelOutput,
         config_class=_CONFIG_FOR_DOC,
@@ -1339,10 +1360,10 @@ class FunnelForMultipleChoice(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
-            Labels for computing the multiple choice classification loss. Indices should be in ``[0, ...,
-            num_choices-1]`` where :obj:`num_choices` is the size of the second dimension of the input tensors. (See
-            :obj:`input_ids` above)
+        labels (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
+            Labels for computing the multiple choice classification loss. Indices should be in `[0, ...,
+            num_choices-1]` where `num_choices` is the size of the second dimension of the input tensors. (See
+            `input_ids` above)
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
         num_choices = input_ids.shape[1] if input_ids is not None else inputs_embeds.shape[1]
@@ -1404,12 +1425,13 @@ class FunnelForTokenClassification(FunnelPreTrainedModel):
         self.dropout = nn.Dropout(config.hidden_dropout)
         self.classifier = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=TokenClassifierOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1425,9 +1447,8 @@ class FunnelForTokenClassification(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size, sequence_length)`, `optional`):
-            Labels for computing the token classification loss. Indices should be in ``[0, ..., config.num_labels -
-            1]``.
+        labels (`torch.LongTensor` of shape `(batch_size, sequence_length)`, *optional*):
+            Labels for computing the token classification loss. Indices should be in `[0, ..., config.num_labels - 1]`.
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1448,16 +1469,7 @@ class FunnelForTokenClassification(FunnelPreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = CrossEntropyLoss()
-            # Only keep active parts of the loss
-            if attention_mask is not None:
-                active_loss = attention_mask.view(-1) == 1
-                active_logits = logits.view(-1, self.num_labels)
-                active_labels = torch.where(
-                    active_loss, labels.view(-1), torch.tensor(loss_fct.ignore_index).type_as(labels)
-                )
-                loss = loss_fct(active_logits, active_labels)
-            else:
-                loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
+            loss = loss_fct(logits.view(-1, self.num_labels), labels.view(-1))
 
         if not return_dict:
             output = (logits,) + outputs[1:]
@@ -1486,12 +1498,13 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
         self.funnel = FunnelModel(config)
         self.qa_outputs = nn.Linear(config.hidden_size, config.num_labels)
 
-        self.init_weights()
+        # Initialize weights and apply final processing
+        self.post_init()
 
     @add_start_docstrings_to_model_forward(FUNNEL_INPUTS_DOCSTRING.format("batch_size, sequence_length"))
     @add_code_sample_docstrings(
-        tokenizer_class=_TOKENIZER_FOR_DOC,
-        checkpoint="funnel-transformer/small",
+        processor_class=_TOKENIZER_FOR_DOC,
+        checkpoint=_CHECKPOINT_FOR_DOC,
         output_type=QuestionAnsweringModelOutput,
         config_class=_CONFIG_FOR_DOC,
     )
@@ -1508,14 +1521,14 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
         return_dict=None,
     ):
         r"""
-        start_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+        start_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the start of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (:obj:`sequence_length`). Position outside of the
-            sequence are not taken into account for computing the loss.
-        end_positions (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
+            Positions are clamped to the length of the sequence (`sequence_length`). Position outside of the sequence
+            are not taken into account for computing the loss.
+        end_positions (`torch.LongTensor` of shape `(batch_size,)`, *optional*):
             Labels for position (index) of the end of the labelled span for computing the token classification loss.
-            Positions are clamped to the length of the sequence (:obj:`sequence_length`). Position outside of the
-            sequence are not taken into account for computing the loss.
+            Positions are clamped to the length of the sequence (`sequence_length`). Position outside of the sequence
+            are not taken into account for computing the loss.
         """
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
 
@@ -1533,8 +1546,8 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
 
         logits = self.qa_outputs(last_hidden_state)
         start_logits, end_logits = logits.split(1, dim=-1)
-        start_logits = start_logits.squeeze(-1)
-        end_logits = end_logits.squeeze(-1)
+        start_logits = start_logits.squeeze(-1).contiguous()
+        end_logits = end_logits.squeeze(-1).contiguous()
 
         total_loss = None
         if start_positions is not None and end_positions is not None:
@@ -1545,8 +1558,8 @@ class FunnelForQuestionAnswering(FunnelPreTrainedModel):
                 end_positions = end_positions.squeeze(-1)
             # sometimes the start/end positions are outside our model inputs, we ignore these terms
             ignored_index = start_logits.size(1)
-            start_positions.clamp_(0, ignored_index)
-            end_positions.clamp_(0, ignored_index)
+            start_positions = start_positions.clamp(0, ignored_index)
+            end_positions = end_positions.clamp(0, ignored_index)
 
             loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
             start_loss = loss_fct(start_logits, start_positions)
