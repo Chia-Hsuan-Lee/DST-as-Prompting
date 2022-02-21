@@ -7,9 +7,9 @@ This is the original implementation of "[Dialogue State Tracking with a Language
 ## Installation
 
 ```
-$ conda create -n DST-prompt python=3.7
-$ cd DST-as-Prompting
-$ conda env update -n DST-prompt -f env.yml
+conda create -n DST-prompt python=3.7
+cd DST-as-Prompting
+conda env update -n DST-prompt -f env.yml
 ```
 
 To use Hugggingface seq2seq training scripts, install from source. 
@@ -17,35 +17,32 @@ To use Hugggingface seq2seq training scripts, install from source.
 pip install git+https://github.com/huggingface/transformers.git@2c2a31ffbcfe03339b1721348781aac4fc05bc5e
 ```
 
-Clone the huggingface repository and checkout to specific commit. This is because the code is only tested on this version. 
-You could also use your own seq2seq training script too!
+Pip install requirements to use Huggingface training script
 ```console
-$ git clone https://github.com/huggingface/transformers.git
-$ cd transformers
-$ git checkout 2c2a31ffbcfe03339b1721348781aac4fc05bc5e
-$ cd examples/pytorch/summarization/
-$ pip install -r requirements.txt
+cd transformers/examples/pytorch/summarization/
+pip install -r requirements.txt
 ```
 
 ## Download and Preprocess Data
 Please download the data from MultiWOZ [github](https://github.com/budzianowski/multiwoz). 
 
 ```console
-$ git clone https://github.com/budzianowski/multiwoz.git
+cd ~/DST-as-Prompting
+git clone https://github.com/budzianowski/multiwoz.git
 ```
 
 `$DATA_DIR` will be `multiwoz/data/MultiWOZ_2.2`
 
 ```console
-$ cd ~/DST-as-Prompting
-$ python preprocess.py $DATA_DIR
+cd ~/DST-as-Prompting
+python preprocess.py $DATA_DIR
 ```
 
 ## Training
 
 ```console
-$ cd transformers
-$ python examples/pytorch/summarization/run_summarization.py \
+cd transformers
+python examples/pytorch/summarization/run_summarization.py \
     --model_name_or_path t5-small \
     --do_train \
     --do_predict \
@@ -70,6 +67,8 @@ At the end of training, the model will get predictions on `$test_file` and store
 ## Evaluation
 
 ```console
+cd ~/DST-as-Prompting
+
 python postprocess.py --data_dir "$DATA_DIR" --out_dir "$DATA_DIR/dummy/" --test_idx "$DATA_DIR/test.idx" \
     --prediction_txt "$output_dir/generated_predictions.txt"
 
