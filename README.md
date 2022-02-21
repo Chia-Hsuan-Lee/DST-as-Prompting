@@ -18,7 +18,7 @@ pip install git+https://github.com/huggingface/transformers.git@2c2a31ffbcfe0333
 ```
 
 Pip install requirements to use Huggingface training script
-```console
+```
 cd transformers/examples/pytorch/summarization/
 pip install -r requirements.txt
 ```
@@ -26,21 +26,21 @@ pip install -r requirements.txt
 ## Download and Preprocess Data
 Please download the data from MultiWOZ [github](https://github.com/budzianowski/multiwoz). 
 
-```console
+```
 cd ~/DST-as-Prompting
 git clone https://github.com/budzianowski/multiwoz.git
 ```
 
 `$DATA_DIR` will be `multiwoz/data/MultiWOZ_2.2`
 
-```console
+```
 cd ~/DST-as-Prompting
 python preprocess.py $DATA_DIR
 ```
 
 ## Training
 
-```console
+```
 cd transformers
 python examples/pytorch/summarization/run_summarization.py \
     --model_name_or_path t5-small \
@@ -66,7 +66,7 @@ At the end of training, the model will get predictions on `$test_file` and store
 
 ## Evaluation
 
-```console
+```
 cd ~/DST-as-Prompting
 
 python postprocess.py --data_dir "$DATA_DIR" --out_dir "$DATA_DIR/dummy/" --test_idx "$DATA_DIR/test.idx" \
@@ -80,10 +80,11 @@ python eval.py --data_dir "$DATA_DIR" --prediction_dir "$DATA_DIR/dummy/" \
 
 If you find our code or paper useful, please cite the paper:
 ```bib
-@article{lee2021dialogue,
+@inproceedings{lee2021dialogue,
   title={Dialogue State Tracking with a Language Model using Schema-Driven Prompting},
   author={Lee, Chia-Hsuan and Cheng, Hao and Ostendorf, Mari},
-  journal={arXiv preprint arXiv:2109.07506},
+  booktitle={Proceedings of the 2021 Conference on Empirical Methods in Natural Language Processing},
+  pages={4937--4949},
   year={2021}
 }
 ```
