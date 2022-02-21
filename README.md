@@ -1,5 +1,6 @@
-# DST-as-Prompting (Code In Progress)
-This repository includes source code of Chia-Hsuan Lee, Hao Cheng, Mari Ostendorf. "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting][paper]" 2021.
+# DST-as-Prompting
+
+This is the original implementation of "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting](https://aclanthology.org/2021.emnlp-main.404/)" by [Chia-Hsuan Lee](https://chiahsuan156.github.io/), [Hao Cheng](https://sites.google.com/site/hcheng2site) and [Mari Ostendorf](https://people.ece.uw.edu/ostendorf/).
 
 [**Installation**](#Installation) | [**Preprocess**](#Download-and-Preprocess-Data) | [**Training**](#Training) | [**Evaluation**](#Evaluation) | | [**Citation**](#Citation-and-Contact)
 
