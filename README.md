@@ -1,20 +1,29 @@
 # DST-as-Prompting (Code In Progress)
 This repository includes source code of Chia-Hsuan Lee, Hao Cheng, Mari Ostendorf. "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting][paper]" 2021.
 
-[**Installation**](#Installation) | [**Preprocess**](# Download-and-Preprocess-Data) | [**Training**](#Training) | [**Evaluation**](#Evaluation) | | [**Citation**](#Citation-and-Contact)
-
-
-
-1. [Installation](#installation)
-2. [Download & Preprocess Data](#download-and-preprocess-data)
-3. [Prompt-based DST](#prompt-based-DST)
-
+[**Installation**](#Installation) | [**Preprocess**](#Download-and-Preprocess-Data) | [**Training**](#Training) | [**Evaluation**](#Evaluation) | | [**Citation**](#Citation-and-Contact)
 
 ## Installation
 
 ```
-$ conda create -n DST-prompt python=3.6.13
-$ conda env update -n DST-prompt -f ./transformers/t5-DST.yml
+$ conda create -n DST-prompt python=3.7
+$ cd DST-as-Prompting
+$ conda env update -n DST-prompt -f env.yml
+```
+
+To use Hugggingface seq2seq training scripts, install from source. 
+```
+pip install git+https://github.com/huggingface/transformers.git@2c2a31ffbcfe03339b1721348781aac4fc05bc5e
+```
+
+Clone the huggingface repository and checkout to specific commit. This is because the code is only tested on this version. 
+You could also use your own seq2seq training script too!
+```console
+$ git clone https://github.com/huggingface/transformers.git
+$ cd transformers
+$ git checkout 2c2a31ffbcfe03339b1721348781aac4fc05bc5e
+$ cd examples/pytorch/summarization/
+$ pip install -r requirements.txt
 ```
 
 ## Download and Preprocess Data
@@ -23,22 +32,18 @@ Please download the data from MultiWOZ [github](https://github.com/budzianowski/
 ```console
 $ git clone https://github.com/budzianowski/multiwoz.git
 ```
-`$DATA_DIR` will be `./multiwoz/data/MultiWOZ_2.2`
+
+`$DATA_DIR` will be `multiwoz/data/MultiWOZ_2.2`
 
 ```console
-$ cd DST-as-Prompting
+$ cd ~/DST-as-Prompting
 $ python preprocess.py $DATA_DIR
 ```
 
 ## Training
-First, clone the huggingface repository and checkout to specific commit. This is because the code is only tested on this version. You could also use your own seq2seq training script too!
-```console
-$ git clone https://github.com/huggingface/transformers.git
-$ cd transformers
-$ git checkout 2c2a31ffbcfe03339b1721348781aac4fc05bc5e
-```
 
 ```console
+$ cd transformers
 $ python examples/pytorch/summarization/run_summarization.py \
     --model_name_or_path t5-small \
     --do_train \
