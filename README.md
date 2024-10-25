@@ -1,4 +1,4 @@
-# SDP-DST: DST-as-Prompting
+# SDP-DST: (Schema) Prompt-Based Finetuning for Dialogue State Tracking with Language Models
 
 This is the original implementation of "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting](https://aclanthology.org/2021.emnlp-main.404/)" by [Chia-Hsuan Lee](https://chiahsuanlee.github.io/), [Hao Cheng](https://sites.google.com/site/hcheng2site) and [Mari Ostendorf](https://people.ece.uw.edu/ostendorf/).
 EMNLP 2021, Long Paper
