@@ -1,83 +1,141 @@
 # SDP-DST: DST-as-Prompting
 
-This is the original implementation of "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting](https://aclanthology.org/2021.emnlp-main.404/)" by [Chia-Hsuan Lee](https://chiahsuan156.github.io/), [Hao Cheng](https://sites.google.com/site/hcheng2site) and [Mari Ostendorf](https://people.ece.uw.edu/ostendorf/).
+This is the original implementation of "[Dialogue State Tracking with a Language Model using Schema-Driven Prompting](https://aclanthology.org/2021.emnlp-main.404/)" by [Chia-Hsuan Lee](https://chiahsuanlee.github.io/), [Hao Cheng](https://sites.google.com/site/hcheng2site) and [Mari Ostendorf](https://people.ece.uw.edu/ostendorf/).
+EMNLP 2021, Long Paper
 
 <p align="center">
   <img src="dst_system.png" width="60%" height="60%">
 </p>
 
+The task is to track user intents predefined by a schema (ontology) in a multi-turn conversation with an agent. 
+SDP-DST is designed to finetune a sequence-to-sequence language model to produce associated slot values given the input prompts derived from schema.
+
 [**Installation**](#Installation) | [**Preprocess**](#Download-and-Preprocess-Data) | [**Training**](#Training) | [**Evaluation**](#Evaluation) | | [**Citation**](#Citation-and-Contact)
 
 ## Installation
 
-```
-conda create -n DST-prompt python=3.7
-cd DST-as-Prompting
-conda env update -n DST-prompt -f env.yml
-```
-
-To use Hugggingface seq2seq training scripts, install from source. 
-```
-pip install git+https://github.com/huggingface/transformers.git@2c2a31ffbcfe03339b1721348781aac4fc05bc5e
+Create a conda environment
+```console
+conda env create -f env.yml
 ```
 
-Pip install requirements to use Huggingface training script
-```
-cd transformers/examples/pytorch/summarization/
-pip install -r requirements.txt
-```
 
 ## Download and Preprocess Data
-Please download the data from MultiWOZ [github](https://github.com/budzianowski/multiwoz). 
 
-```
-cd ~/DST-as-Prompting
-git clone https://github.com/budzianowski/multiwoz.git
+To download and create the [MultiWoz 2.4](https://github.com/smartyfh/MultiWOZ2.4/) 
+```console
+python create_data.py --main_dir mw24_src --mwz_ver 2.4 --target_path mw24 
 ```
 
-`$DATA_DIR` will be `multiwoz/data/MultiWOZ_2.2`
 
+We provide two types of prompting strategies: 
+1) `Prompt by Slot`: described as independent decoding in the paper, this method prompts the LM by a full dialogue histroy + a pair of domain and slot and their associated textual descriptions. The LM then produces the corresponding slot value given this prompt.  
+
+2) `Prompt All Domain`: described as sequential decoding in the paper, this method prompts the LM by a dialogue turn pair and the full schema string. The LM then produces the dialogue state changes for all domains for the current turn. 
+
+`Prompt by Slot` gives better accuracies but is more computationally expensive.
+
+To preprocess for `Prompt by Slot`, 
+```console
+python preprocess_mw24_prompt_by_slot.py --in_train_fn ./mw24/train_dials.json --in_test_fn ./mw24/test_dials_mw24.json --out_train_fn ./mw24/mw24_prompt_by_slot_train.json --out_test_fn ./mw24/mw24_prompt_by_slot_test.json
 ```
-cd ~/DST-as-Prompting
-python preprocess.py $DATA_DIR
+
+To preprocess for `Prompt All Domain`, 
+```console
+python preprocess_mw24_prompt_alldomains.py --in_train_fn ./mw24/train_dials.json --in_test_fn ./mw24/test_dials_mw24.json --out_train_fn ./mw24/mw24_prompt_alldomains_train.json --out_test_fn ./mw24/mw24_prompt_alldomains_test.json
+```
+
+
+To preprocess for `Prompt by Slot` on [MultiWoz 2.2](https://github.com/budzianowski/multiwoz/tree/master/data/MultiWOZ_2.2),
+```console
+cd data
+unzip MultiWOZ_2.2.zip
+python preprocess_mw22_prompt_by_slot.py MultiWOZ_2.2
 ```
 
 ## Training
 
-```
-cd transformers
-python examples/pytorch/summarization/run_summarization.py \
-    --model_name_or_path t5-small \
+To train for `Prompt by Slot` on MultiWOZ 2.4
+```console
+python run_t5.py \
+   --model_name_or_path t5-base  \
     --do_train \
     --do_predict \
-    --train_file "$DATA_DIR/train.json" \
-    --validation_file "$DATA_DIR/dev.json" \
-    --test_file "$DATA_DIR/test.json" \
+    --train_file mw24_SDPDST_train100p.json \
+    --test_file mw24_SDPDST_test100p.json \
     --source_prefix "" \
-    --output_dir /tmp/t5small_mwoz2.2 \
-    --per_device_train_batch_size=4 \
-    --per_device_eval_batch_size=4 \
+    --output_dir ./exps/t5base_mw24_prompt_by_slot/ \
+    --per_device_train_batch_size=48 \
+    --predict_with_generate \
+    --text_column="dialogue_schema_prompt" \
+    --summary_column="value" \
+    --num_train_epochs 3 \
+    --max_source_length 512 \
+    --max_target_length 10 \
+    --save_steps 10000 \
+    --learning_rate 5e-4
+```
+- `--model_name_or_path`: name of the model card, like `t5-small`, `t5-base`, etc
+At the end of training, the model will get predictions on `$test_file` and store the results at `$output_dir/generated_predictions.txt` .
+
+To train for `Prompt All Domain` on MultiWOZ 2.4
+```console
+python run_t5.py \
+   --model_name_or_path t5-base  \
+    --do_train \
+    --do_predict \
+    --train_file ./mw24/mw24_prompt_alldomains_train.json \
+    --test_file ./mw24/mw24_prompt_alldomains_test.json \
+    --source_prefix "" \
+    --output_dir ./exps/t5base_mw24_prompt_alldomains/ \
+    --per_device_train_batch_size=48 \
+    --predict_with_generate \
+    --text_column="schema_prev_dst_turn_pair_reversed" \
+    --summary_column="tlb" \
+    --num_train_epochs 20 \
+    --max_source_length 512 \
+    --max_target_length 100 \
+    --save_steps 5000
+```
+
+To train for `Prompt by Slot` on MultiWOZ 2.2
+```console
+python run_t5.py \
+    --model_name_or_path t5-base \
+    --do_train \
+    --do_predict \
+    --train_file ./MultiWOZ_2.2/train.json \
+    --test_file ./MultiWOZ_2.2/test.json \
+    --source_prefix "" \
+    --output_dir ./exps/t5base_mw22_prompt_by_slot/ \
+    --per_device_train_batch_size=48 \
     --predict_with_generate \
     --text_column="dialogue" \
     --summary_column="state" \
     --save_steps=500000
 ```
 
-- `--model_name_or_path`: name of the model card, like `t5-small`, `t5-base`, etc
-
-This should take ~32 hours to train on a single GPU. 
-At the end of training, the model will get predictions on `$test_file` and store the results at `$output_dir/generated_predictions.txt` .
-
 ## Evaluation
 
+For MultiWOZ 2.4 `Prompt by Slot`,
+```console
+python eval_mw24_prompt_by_slot.py --pred_fn ./exps/MWOZ/t5base_mw24_prompt_by_slot/generated_predictions.txt --gold_fn ./data/mw24_prompt_by_slot_test.json --ontology_fn ./data/ontology_mw24.json
 ```
-cd ~/DST-as-Prompting
 
-python postprocess.py --data_dir "$DATA_DIR" --out_dir "$DATA_DIR/dummy/" --test_idx "$DATA_DIR/test.idx" \
-    --prediction_txt "$output_dir/generated_predictions.txt"
 
-python eval.py --data_dir "$DATA_DIR" --prediction_dir "$DATA_DIR/dummy/" \
-    --output_metric_file "$DATA_DIR/dummy/prediction_score"
+For MultiWOZ 2.4 `Prompt All Domain`,
+```console
+python eval_mw24_prompt_alldomains.py --pred_fn ./exps/t5base_mw24_prompt_alldomains/generated_predictions.txt --gold_fn ./data/mw24_prompt_alldomains_test.json --ontology_fn ./data/ontology_mw24.json
+```
+
+For MultiWOZ 2.2 `Prompt by Slot`, we follow the official evaluation script from [Google SGD](https://github.com/google-research/google-research/tree/master/schema_guided_dst), 
+```console
+cd data
+python postprocess_mw22_prompt_by_slot.py --data_dir ./MultiWOZ_2.2 --out_dir ./MultiWOZ_2.2/dummy/ --test_idx ./MultiWOZ_2.2/mw24_prompt_by_slot_test.idx --prediction_txt ../exps/t5base_mw22_prompt_by_slot/generated_predictions.txt
+
+cd ../
+python eval_mw22_prompt_by_slot.py --data_dir ./data/MultiWOZ_2.2 --prediction_dir ./data/MultiWOZ_2.2/dummy/ \
+    --output_metric_file ./data/MultiWOZ_2.2/dummy/prediction_score
 ```
 
 ## Citation and Contact
@@ -93,4 +151,4 @@ If you find our code or paper useful, please cite the paper:
 }
 ```
 
-Please contact Chia-Hsuan Lee (chiahlee[at]uw.edu) for questions and suggestions.
+Please contact Chia-Hsuan Lee (chiahsuan.li[at]gmail.com) for questions and suggestions.
