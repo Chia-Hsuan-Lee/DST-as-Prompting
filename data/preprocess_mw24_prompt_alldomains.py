@@ -91,8 +91,6 @@ def process_and_write_dials(dials, output_file):
 
                 out.write(json.dumps(line) + "\n")
 
-# Process and write train dialogues
 process_and_write_dials(train_dials, output_train_file)
 
-# Process and write test dialogues
 process_and_write_dials(test_dials, output_test_file)

@@ -85,8 +85,6 @@ if __name__=='__main__':
 
     parser.add_argument("--test_idx", type=str, default="./MultiWOZ_2.2/mw24_prompt_by_slot_test.idx")
     parser.add_argument("--prediction_txt", type=str, default="")
-    #idx = open("./MultiWOZ_2.2/test.idx")
-    #out = open("/tmp/t5small_mwoz2.2/generated_predictions.txt")
     args = parser.parse_args()
 
     main(args)

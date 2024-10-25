@@ -17,14 +17,6 @@ output_train_file = args.out_train_fn
 output_test_file = args.out_test_fn
 schema_file = args.schema_fn
 
-# File paths
-# train_file_dials = "/gscratch/ark/chiahlee/DST-as-Prompting_orchestrallm/MW2.4/train_dials.json"
-# test_file_dials = "/gscratch/ark/chiahlee/DST-as-Prompting_orchestrallm/MW2.4/test_dials.json"
-
-# output_train_file = "./mw24_SDPDST_train100p_1023.json"
-# output_test_file = "./mw24_SDPDST_test100p_1023.json"
-
-# schema_file = "/mmfs1/gscratch/ark/chiahlee/multiwoz/data/MultiWOZ_2.1/slot_descriptions.json"
 schema = json.load(open(schema_file))
 excluded_domains = ["police", "hospital", "bus"]
 valid_schema = {domain_slot: desc for domain_slot, desc in schema.items()
@@ -119,8 +111,6 @@ def process_and_write_dials(dials, output_file):
 
                     out.write(json.dumps(line) + "\n")
 
-# Process and write train dialogues
 process_and_write_dials(train_dials, output_train_file)
 
-# Process and write test dialogues
 process_and_write_dials(test_dials, output_test_file)

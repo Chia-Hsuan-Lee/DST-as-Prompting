@@ -68,7 +68,6 @@ def preprocess(dial_json, schema, out, idx_out, excluded_domains, frame_idxs):
 
 
 def main():
-    #data_path = "./MultiWOZ_2.2/"
     data_path = sys.argv[1]
 
     schema_path = os.path.join(data_path , "schema.json")
