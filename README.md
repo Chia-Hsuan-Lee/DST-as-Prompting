@@ -24,7 +24,11 @@ conda env create -f env.yml
 
 To download and create the [MultiWoz 2.4](https://github.com/smartyfh/MultiWOZ2.4/) 
 ```console
-python create_data.py --main_dir mw24_src --mwz_ver 2.4 --target_path mw24 
+python create_data.py --main_dir mw24_src --mwz_ver 2.4 --target_path mw24
+```
+for [MultiWOZ 2.1](https://arxiv.org/abs/1907.01669)
+```console
+python create_data.py --main_dir mw21_src --mwz_ver 2.1 --target_path mw21
 ```
 
 
